@@ -10,6 +10,7 @@ import MultiSelect from 'primevue/multiselect';
 import ProgressBar from 'primevue/progressbar';
 import Tag from 'primevue/tag';
 import Textarea from 'primevue/textarea';
+import { marked } from 'marked';
 import {api} from './api';
 import {dateIso, money, percent} from './format';
 
@@ -645,7 +646,8 @@ function progressValue(value) {
 
 const benchmarkMatrix = computed(() => {
   const rows = filteredBenchmark.value;
-  const productos = [...new Set(rows.map(r => r.producto).filter(Boolean))].sort();
+  const productosSet = new Set(rows.map(r => r.producto).filter(Boolean));
+  const productos = Array.from(productosSet).sort();
   const bancosSet = new Set(rows.map(r => r.banco).filter(Boolean));
   const bancos = Array.from(bancosSet).sort((a, b) => {
     if (a === 'BNB') return -1;
@@ -653,23 +655,23 @@ const benchmarkMatrix = computed(() => {
     return a.localeCompare(b);
   });
 
-  const matrix = productos.map(prod => {
-    const rowObj = { producto: prod };
+  const matrix = bancos.map(banco => {
+    const rowObj = { banco: banco };
     let rowTotal = 0;
-    bancos.forEach(banco => {
+    productos.forEach(prod => {
       const found = rows.find(r => r.producto === prod && r.banco === banco);
       if (found) {
-        rowObj[banco] = { crecimientoPct: found.crecimientoPct, total: found.total };
+        rowObj[prod] = { crecimientoPct: found.crecimientoPct, total: found.total };
         rowTotal += (found.total || 0);
       } else {
-        rowObj[banco] = null;
+        rowObj[prod] = null;
       }
     });
     rowObj.rowTotal = rowTotal;
     return rowObj;
   });
 
-  return { bancos, matrix };
+  return { productos, matrix };
 });
 
 // ─── Carga de datos ───────────────────────────────────────────────────────────
@@ -794,6 +796,12 @@ async function sendChat(message = chatInput.value) {
   } finally {
     chatLoading.value = false;
   }
+}
+
+function renderMarkdown(text) {
+  if (!text) return '';
+  const cleanText = String(text).replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  return marked.parse(cleanText);
 }
 
 // ─── Navegación ───────────────────────────────────────────────────────────────
@@ -1401,24 +1409,29 @@ onMounted(async () => {
                 <table class="heat-table sf-matrix-table">
                   <thead>
                   <tr>
-                    <th>Producto</th>
-                    <th v-for="banco in benchmarkMatrix.bancos" :key="banco" :class="{ 'bnb-col': banco === 'BNB' }" style="text-align: center;">
-                       <span class="bdot" :class="{ bnb: banco === 'BNB' }" style="display:inline-block; margin-right:4px;"></span>
-                       {{ banco }}
+                    <th>Banco</th>
+                    <th v-for="prod in benchmarkMatrix.productos" :key="prod" style="text-align: center;">
+                       {{ prod }}
                     </th>
-                    <th style="text-align: center;">Total Sistema</th>
+                    <th style="text-align: center;">Total Banco</th>
                   </tr>
                   </thead>
                   <tbody>
-                  <tr v-for="row in benchmarkMatrix.matrix" :key="row.producto">
-                    <td><strong>{{ row.producto }}</strong></td>
-                    <td v-for="banco in benchmarkMatrix.bancos" :key="banco" :class="{ 'bnb-col': banco === 'BNB' }" style="text-align: center; vertical-align: middle;">
-                      <div v-if="row[banco]" class="sf-cell">
-                        <div :class="heatClass(row[banco].crecimientoPct)" style="font-weight: 600; margin-bottom: 4px;">
-                          {{ row[banco].crecimientoPct !== null ? (row[banco].crecimientoPct > 0 ? '↑ +' : '↓ ') + row[banco].crecimientoPct.toFixed(2) + '%' : 'Sin datos' }}
+                  <tr v-for="row in benchmarkMatrix.matrix" :key="row.banco">
+                    <td>
+                      <div class="bname">
+                        <span class="bdot" :class="{ bnb: row.banco === 'BNB' }"></span>
+                        <strong v-if="row.banco === 'BNB'">{{ row.banco }}</strong>
+                        <span v-else>{{ row.banco }}</span>
+                      </div>
+                    </td>
+                    <td v-for="prod in benchmarkMatrix.productos" :key="prod" style="text-align: center; vertical-align: middle;">
+                      <div v-if="row[prod]" class="sf-cell">
+                        <div :class="heatClass(row[prod].crecimientoPct)" style="font-weight: 600; margin-bottom: 4px;">
+                          {{ row[prod].crecimientoPct !== null ? (row[prod].crecimientoPct > 0 ? '↑ +' : '↓ ') + row[prod].crecimientoPct.toFixed(2) + '%' : 'Sin datos' }}
                         </div>
                         <div class="sf-stock" style="font-size: 0.85em; color: #666; font-weight: 500;">
-                          {{ moneyFull(row[banco].total) }}
+                          {{ moneyFull(row[prod].total) }}
                         </div>
                       </div>
                       <div v-else class="heat-empty">--</div>
@@ -1467,7 +1480,7 @@ onMounted(async () => {
                   <div class="chat-avatar">
                     <font-awesome-icon :icon="message.role === 'bot' ? 'brain' : 'user-tie'"/>
                   </div>
-                  <p>{{ message.text }}</p>
+                  <div class="chat-bubble" v-html="renderMarkdown(message.text)"></div>
                 </div>
                 <div v-if="chatLoading" class="chat-message bot">
                   <div class="chat-avatar">

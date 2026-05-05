@@ -1461,3 +1461,57 @@ dd {
 }
 
 .p-multiselect { min-width: 220px; }
+
+/* Markdown Chat Styles */
+.chat-bubble {
+  background-color: var(--p-surface-100);
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--p-text-color);
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.chat-message.user .chat-bubble {
+  background-color: var(--p-primary-100);
+  color: var(--p-primary-900);
+}
+
+.chat-bubble p {
+  margin: 0 0 8px 0;
+}
+
+.chat-bubble p:last-child {
+  margin-bottom: 0;
+}
+
+.chat-bubble table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 0.85rem;
+}
+
+.chat-bubble th,
+.chat-bubble td {
+  border: 1px solid var(--p-surface-300);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.chat-bubble th {
+  background-color: var(--p-surface-200);
+  font-weight: 600;
+}
+
+.chat-bubble strong {
+  font-weight: 600;
+}
+
+.chat-bubble ul, .chat-bubble ol {
+  margin-top: 4px;
+  margin-bottom: 8px;
+  padding-left: 20px;
+}
