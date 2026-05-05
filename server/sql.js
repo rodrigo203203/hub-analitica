@@ -57,15 +57,19 @@ function expandInFilter({
     if (Array.isArray(values) && values.length > 0) {
         const paramNames = values.map((_, i) => `@${key}${i}`);
         const inClause = paramNames.join(', ');
+        let matched = false;
 
         finalText = finalText.replace(regex, (_match, prefix) => {
+            matched = true;
             const field = fieldBuilder(prefix || '');
             return `(${field} IN (${inClause}))`;
         });
 
-        values.forEach((val, i) => {
-            request.input(`${key}${i}`, sqlType, val);
-        });
+        if (matched) {
+            values.forEach((val, i) => {
+                request.input(`${key}${i}`, sqlType, val);
+            });
+        }
 
         return finalText;
     }
@@ -75,13 +79,40 @@ function expandInFilter({
 }
 
 /**
- * Ejecuta una query parametrizada.
- * Soporta filtros múltiples:
- * - producto: ['CONSUMO', 'VIVIENDA']
- * - sucursal: ['LA PAZ', 'SANTA CRUZ']
- *
- * Si viene 'TODOS' o 'TODAS', no aplica filtro.
+ * Filtro por agencia en Hub_CarteraSF: restricción por sucursales asociadas en DimAgencia.
  */
+function expandAgenciaSfFilter({finalText, request, values, key}) {
+    const regex =
+        /\(\s*@agenciaSf\s+IS\s+NULL\s+OR\s+sf\.Sucursal\s+IN\s*\(\s*SELECT\s+da\.Sucursal\s+FROM\s+DimAgencia\s+da\s+WHERE\s+da\.Cod_Agencia\s*=\s*@agenciaSf\s*\)\s*\)/gi;
+
+    if (Array.isArray(values) && values.length > 0) {
+        const paramNames = values.map((_, i) => `@${key}${i}`);
+        const inClause = paramNames.join(', ');
+        let matched = false;
+        finalText = finalText.replace(
+            regex,
+            () => {
+                matched = true;
+                return `( sf.Sucursal IN (SELECT da.Sucursal FROM DimAgencia da WHERE da.Cod_Agencia IN (${inClause})) )`;
+            }
+        );
+        if (matched) {
+            values.forEach((val, i) => {
+                request.input(`${key}${i}`, sql.NVarChar, String(val));
+            });
+        }
+        return finalText;
+    }
+
+    request.input(key, sql.NVarChar, null);
+    return finalText;
+}
+
+/**
+ * Ejecuta una query parametrizada.
+ * Soporta filtros múltiples (producto, sucursal, agencia) y sentinela TODOS/TODAS.
+ */
+
 export async function query(text, inputs = {}) {
     const pool = await getPool();
     if (!pool) return null;
@@ -91,10 +122,12 @@ export async function query(text, inputs = {}) {
 
     const productos = normalizeArrayFilter(inputs.producto, 'TODOS');
     const sucursales = normalizeArrayFilter(inputs.sucursal, 'TODAS');
+    const agencias = normalizeArrayFilter(inputs.agencia, 'TODAS');
 
     const inputsRest = {...inputs};
     delete inputsRest.producto;
     delete inputsRest.sucursal;
+    delete inputsRest.agencia;
 
     finalText = expandInFilter({
         finalText,
@@ -116,11 +149,101 @@ export async function query(text, inputs = {}) {
         fieldBuilder: (prefix) => `${prefix}Sucursal`
     });
 
-    Object.entries(inputsRest).forEach(([key, value]) => {
-        request.input(key, value ?? null);
+    finalText = expandInFilter({
+        finalText,
+        request,
+        values: agencias,
+        key: 'agencia',
+        sqlType: sql.NVarChar,
+        regex: /\(\s*@agencia\s+IS\s+NULL\s+OR\s+d\.Cod_Agencia\s*=\s*@agencia\s*\)/gi,
+        fieldBuilder: () => 'd.Cod_Agencia'
+    });
+
+    finalText = expandAgenciaSfFilter({finalText, request, values: agencias, key: 'agenciaSf'});
+
+    Object.entries(inputsRest).forEach(([inKey, value]) => {
+        request.input(inKey, value ?? null);
     });
 
     return request.query(finalText);
+}
+
+/**
+ * Catálogos para filtros cuando hay conexión SQL. Etiqueta de agencia: Cod_Agencia + Sucursal (ajustar si existe columna descriptiva en DimAgencia).
+ */
+export async function fetchCatalogsFromSql() {
+    const pool = await getPool();
+    if (!pool) return null;
+
+    try {
+        const [
+            fechasRes,
+            sucRes,
+            prodBnbRes,
+            prodSfRes,
+            bancosRes,
+            agRes
+        ] = await Promise.all([
+            pool.request().query(`
+                SELECT DISTINCT fechadata AS d
+                FROM Hub_CarteraBNB
+                ORDER BY d DESC
+            `),
+            pool.request().query(`
+                SELECT DISTINCT Sucursal AS s
+                FROM DimAgencia
+                WHERE Sucursal IS NOT NULL AND LTRIM(RTRIM(Sucursal)) <> ''
+                ORDER BY s
+            `),
+            pool.request().query(`
+                SELECT DISTINCT segmentacioncredito AS p
+                FROM Hub_CarteraBNB
+                WHERE segmentacioncredito IS NOT NULL AND LTRIM(RTRIM(segmentacioncredito)) <> ''
+                ORDER BY p
+            `),
+            pool.request().query(`
+                SELECT DISTINCT segmentacioncredito AS p
+                FROM Hub_CarteraSF
+                WHERE segmentacioncredito IS NOT NULL AND LTRIM(RTRIM(segmentacioncredito)) <> ''
+                ORDER BY p
+            `),
+            pool.request().query(`
+                SELECT DISTINCT banco AS b
+                FROM Hub_CarteraSF
+                WHERE banco IS NOT NULL AND LTRIM(RTRIM(banco)) <> ''
+                ORDER BY b
+            `),
+            pool.request().query(`
+                SELECT DISTINCT
+                    Cod_Agencia AS cod,
+                    CONCAT(
+                        CAST(Cod_Agencia AS NVARCHAR(50)),
+                        N' · ',
+                        Sucursal
+                    ) AS label,
+                    Sucursal AS sucursal
+                FROM DimAgencia
+                ORDER BY label
+            `)
+        ]);
+
+        const fechas = (fechasRes.recordset || []).map((row) => row.d).filter(Boolean);
+        const sucursales = ['TODAS', ...(sucRes.recordset || []).map((row) => row.s).filter(Boolean)];
+        const productosBNB = ['TODOS', ...(prodBnbRes.recordset || []).map((row) => row.p).filter(Boolean)];
+        const productosSF = ['TODOS', ...(prodSfRes.recordset || []).map((row) => row.p).filter(Boolean)];
+        const bancos = ['TODOS', ...(bancosRes.recordset || []).map((row) => row.b).filter(Boolean)];
+        const agRows = (agRes.recordset || []).map((row) => ({
+            cod: row.cod,
+            label: row.label,
+            sucursal: row.sucursal
+        }));
+        const agencias = [{cod: 'TODAS', label: 'Todas las agencias', sucursal: null}, ...agRows];
+
+        return {fechas, sucursales, productosBNB, productosSF, bancos, agencias};
+    } catch (e) {
+        console.error('fetchCatalogsFromSql:', e.message);
+        return null;
+    }
 }
 
 export const queries = {
@@ -140,7 +263,8 @@ export const queries = {
                                  INNER JOIN FechaActual fa ON s.fechadata = fa.FechaReferencia
                                  INNER JOIN DimAgencia d ON d.Cod_Agencia = s.Idagencia
                         WHERE (@sucursal IS NULL OR d.Sucursal = @sucursal)
-                          AND (@producto IS NULL OR s.segmentacioncredito = @producto)),
+                          AND (@producto IS NULL OR s.segmentacioncredito = @producto)
+                          AND (@agencia IS NULL OR d.Cod_Agencia = @agencia)),
              AcumuladoAnio AS (SELECT SUM(s.Desembolso)   AS DesembolsoAcumuladoAnioUSD,
                                       SUM(s.amortizacion) AS AmortizacionAcumuladaAnioUSD
                                FROM Hub_CarteraBNB s
@@ -149,13 +273,15 @@ export const queries = {
                                                        AND s.fechadata <= fa.FechaReferencia
                                         INNER JOIN DimAgencia d ON d.Cod_Agencia = s.Idagencia
                                WHERE (@sucursal IS NULL OR d.Sucursal = @sucursal)
-                                 AND (@producto IS NULL OR s.segmentacioncredito = @producto)),
+                                 AND (@producto IS NULL OR s.segmentacioncredito = @producto)
+                                 AND (@agencia IS NULL OR d.Cod_Agencia = @agencia)),
              Base AS (SELECT SUM(s.stock) AS StockBaseUSD
                       FROM Hub_CarteraBNB s
                                INNER JOIN FechaBase fb ON s.fechadata = fb.FechaReferencia
                                INNER JOIN DimAgencia d ON d.Cod_Agencia = s.Idagencia
                       WHERE (@sucursal IS NULL OR d.Sucursal = @sucursal)
-                        AND (@producto IS NULL OR s.segmentacioncredito = @producto))
+                        AND (@producto IS NULL OR s.segmentacioncredito = @producto)
+                        AND (@agencia IS NULL OR d.Cod_Agencia = @agencia))
         SELECT (SELECT FechaReferencia FROM FechaActual) AS FechaCorte,
                a.StockActualUSD,
                b.StockBaseUSD,
@@ -194,9 +320,12 @@ export const queries = {
                  INNER JOIN DimAgencia d ON d.Cod_Agencia = s.Idagencia
         WHERE (@sucursal IS NULL OR d.Sucursal = @sucursal)
           AND (@producto IS NULL OR s.segmentacioncredito = @producto)
+          AND (@agencia IS NULL OR d.Cod_Agencia = @agencia)
         GROUP BY s.fechadata
         ORDER BY s.fechadata ASC;
-    `,kpisByProduct: `
+    `,
+
+    kpisByProduct: `
   WITH FechaActual AS (
     SELECT COALESCE(CAST(@fecha AS DATE), MAX(fechadata)) AS FechaReferencia
     FROM Hub_CarteraBNB
@@ -218,6 +347,7 @@ export const queries = {
     INNER JOIN DimAgencia d ON d.Cod_Agencia = s.Idagencia
     WHERE (@sucursal IS NULL OR d.Sucursal = @sucursal)
       AND (@producto IS NULL OR s.segmentacioncredito = @producto)
+      AND (@agencia IS NULL OR d.Cod_Agencia = @agencia)
     GROUP BY s.segmentacioncredito
   ),
   AcumuladoAnio AS (
@@ -232,6 +362,7 @@ export const queries = {
     INNER JOIN DimAgencia d ON d.Cod_Agencia = s.Idagencia
     WHERE (@sucursal IS NULL OR d.Sucursal = @sucursal)
       AND (@producto IS NULL OR s.segmentacioncredito = @producto)
+      AND (@agencia IS NULL OR d.Cod_Agencia = @agencia)
     GROUP BY s.segmentacioncredito
   ),
   Base AS (
@@ -243,6 +374,7 @@ export const queries = {
     INNER JOIN DimAgencia d ON d.Cod_Agencia = s.Idagencia
     WHERE (@sucursal IS NULL OR d.Sucursal = @sucursal)
       AND (@producto IS NULL OR s.segmentacioncredito = @producto)
+      AND (@agencia IS NULL OR d.Cod_Agencia = @agencia)
     GROUP BY s.segmentacioncredito
   )
   SELECT
@@ -283,6 +415,7 @@ export const queries = {
                         WHERE (@banco IS NULL OR sf.banco = @banco)
                           AND (@sucursal IS NULL OR sf.Sucursal = @sucursal)
                           AND (@producto IS NULL OR sf.segmentacioncredito = @producto)
+                          AND (@agenciaSf IS NULL OR sf.Sucursal IN (SELECT da.Sucursal FROM DimAgencia da WHERE da.Cod_Agencia = @agenciaSf))
                         GROUP BY sf.banco, sf.Sucursal, sf.segmentacioncredito),
              Base AS (SELECT sf.banco,
                              sf.Sucursal,
@@ -293,6 +426,7 @@ export const queries = {
                       WHERE (@banco IS NULL OR sf.banco = @banco)
                         AND (@sucursal IS NULL OR sf.Sucursal = @sucursal)
                         AND (@producto IS NULL OR sf.segmentacioncredito = @producto)
+                        AND (@agenciaSf IS NULL OR sf.Sucursal IN (SELECT da.Sucursal FROM DimAgencia da WHERE da.Cod_Agencia = @agenciaSf))
                       GROUP BY sf.banco, sf.Sucursal, sf.segmentacioncredito)
         SELECT a.banco,
                a.Sucursal,
@@ -325,6 +459,7 @@ export const queries = {
                  INNER JOIN FechaActual fa ON sf.fechadata = fa.FechaReferencia
         WHERE (@sucursal IS NULL OR sf.Sucursal = @sucursal)
           AND (@producto IS NULL OR sf.segmentacioncredito = @producto)
+          AND (@agenciaSf IS NULL OR sf.Sucursal IN (SELECT da.Sucursal FROM DimAgencia da WHERE da.Cod_Agencia = @agenciaSf))
         GROUP BY sf.segmentacioncredito
         ORDER BY ParticipacionBNBPct DESC;
     `,
@@ -340,6 +475,7 @@ export const queries = {
                  INNER JOIN DimAgencia d ON d.Cod_Agencia = o.ID_AGENCIA
                  INNER JOIN FechaActual fa ON o.FechaData = fa.FechaReferencia
         WHERE (@sucursal IS NULL OR d.Sucursal = @sucursal)
+          AND (@agencia IS NULL OR d.Cod_Agencia = @agencia)
         GROUP BY d.Sucursal, o.Oficial
         ORDER BY DesembolsoOficialUSD DESC;
     `,

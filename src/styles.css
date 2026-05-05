@@ -342,7 +342,7 @@ textarea {
 
 .filter-bar {
   display: grid;
-  grid-template-columns: repeat(4, minmax(150px, 1fr)) auto;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
   gap: 12px;
   align-items: end;
   background: var(--white);
@@ -350,6 +350,13 @@ textarea {
   border-radius: var(--radius);
   padding: 14px;
   margin-bottom: 18px;
+}
+
+.filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }
 
 .filter-bar label {

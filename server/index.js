@@ -14,7 +14,7 @@ import {
     summary,
     timeSeries
 } from './mockData.js';
-import {hasSqlConfig, queries, query} from './sql.js';
+import {fetchCatalogsFromSql, hasSqlConfig, queries, query} from './sql.js';
 
 const app = express();
 const port = Number(process.env.PORT || 4000);
@@ -43,14 +43,38 @@ function normalizeMulti(value, allValue) {
 }
 
 function parseFilters(req) {
-    const {fecha, sucursal, producto, banco} = req.query;
+    const {fecha, sucursal, producto, banco, agencia} = req.query;
 
     return {
         fecha: fecha || null,
         sucursal: normalizeMulti(sucursal, 'TODAS'),
         producto: normalizeMulti(producto, 'TODOS'),
-        banco: banco && banco !== 'TODOS' ? banco : null
+        banco: banco && banco !== 'TODOS' ? banco : null,
+        agencia: normalizeMulti(agencia, 'TODAS')
     };
+}
+
+function emptySummaryWithAlerts() {
+    const data = {
+        fechaCorte: null,
+        stockActual: 0,
+        stockBase: 0,
+        crecimientoPct: null,
+        crecimientoNominal: 0,
+        desembolsosAcum: 0,
+        desembolsosMes: 0,
+        desembolsosVariacionPct: null,
+        pendiente: 0,
+        amortizacion: 0,
+        amortizacionMes: 0,
+        presupuesto: 0,
+        cumplimientoPct: null,
+        brechaPresupuesto: 0,
+        estado: 'Critico',
+        score: 'B'
+    };
+
+    return {...data, alerts: buildDynamicAlerts(data)};
 }
 
 function normalizeSummary(row) {
@@ -211,8 +235,17 @@ app.get('/api/health', (_req, res) => {
     res.json({ok: true, ...sqlMode()});
 });
 
-app.get('/api/catalogs', (_req, res) => {
-    res.json({data: catalogs, ...sqlMode()});
+app.get('/api/catalogs', async (_req, res, next) => {
+    try {
+        const fromSql = await fetchCatalogsFromSql();
+        if (fromSql) {
+            return res.json({data: fromSql, ...sqlMode()});
+        }
+
+        res.json({data: catalogs, ...sqlMode()});
+    } catch (error) {
+        next(error);
+    }
 });
 
 app.get('/api/cartera/summary', async (req, res, next) => {
@@ -222,18 +255,22 @@ app.get('/api/cartera/summary', async (req, res, next) => {
         const result = await query(queries.summary, {
             fecha: f.fecha,
             sucursal: f.sucursal,
-            producto: f.producto
+            producto: f.producto,
+            agencia: f.agencia
         });
 
-        const data = result?.recordset?.[0]
-            ? normalizeSummary(result.recordset[0])
-            : summary;
+        let data;
+        if (result === null) {
+            data = {...summary, alerts: buildDynamicAlerts(summary)};
+        } else if (!result.recordset?.[0]) {
+            data = emptySummaryWithAlerts();
+        } else {
+            const normalized = normalizeSummary(result.recordset[0]);
+            data = {...normalized, alerts: buildDynamicAlerts(normalized)};
+        }
 
         res.json({
-            data: {
-                ...data,
-                alerts: buildDynamicAlerts(data)
-            },
+            data,
             ...sqlMode()
         });
     } catch (error) {
@@ -248,12 +285,18 @@ app.get('/api/cartera/kpis', async (req, res, next) => {
         const result = await query(queries.summary, {
             fecha: f.fecha,
             sucursal: f.sucursal,
-            producto: f.producto
+            producto: f.producto,
+            agencia: f.agencia
         });
 
-        const data = result?.recordset?.[0]
-            ? buildKpisFromSummary(normalizeSummary(result.recordset[0]))
-            : kpis;
+        let data;
+        if (result === null) {
+            data = kpis;
+        } else if (!result.recordset?.[0]) {
+            data = buildKpisFromSummary(emptySummaryWithAlerts());
+        } else {
+            data = buildKpisFromSummary(normalizeSummary(result.recordset[0]));
+        }
 
         res.json({data, ...sqlMode()});
     } catch (error) {
@@ -267,11 +310,17 @@ app.get('/api/cartera/timeseries', async (req, res, next) => {
 
         const result = await query(queries.timeseries, {
             sucursal: f.sucursal,
-            producto: f.producto
+            producto: f.producto,
+            agencia: f.agencia
         });
 
-        const data = result?.recordset?.length
-            ? result.recordset.map((row) => ({
+        let data;
+        if (result === null) {
+            data = timeSeries;
+        } else if (!result.recordset?.length) {
+            data = [];
+        } else {
+            data = result.recordset.map((row) => ({
                 month: new Intl.DateTimeFormat('es-BO', {month: 'short'}).format(new Date(row.fechadata)),
                 fecha: row.fechadata,
                 desembolso: money(row.DesembolsoUSD) / 1_000_000,
@@ -279,8 +328,8 @@ app.get('/api/cartera/timeseries', async (req, res, next) => {
                 stock: money(row.StockActualUSD) / 1_000_000,
                 presupuesto: money(row.PresupuestoStockUSD) / 1_000_000,
                 cumplimientoPct: pct(row.CumplimientoStockPct)
-            }))
-            : timeSeries;
+            }));
+        }
 
         res.json({data, ...sqlMode()});
     } catch (error) {
@@ -317,11 +366,17 @@ app.get('/api/cartera/kpis-by-product', async (req, res, next) => {
         const result = await query(queries.kpisByProduct, {
             fecha: f.fecha,
             sucursal: f.sucursal,
-            producto: f.producto
+            producto: f.producto,
+            agencia: f.agencia
         });
 
-        const data = result?.recordset?.length
-            ? result.recordset.map((row) => ({
+        let data;
+        if (result === null) {
+            data = kpisByProduct;
+        } else if (!result.recordset?.length) {
+            data = [];
+        } else {
+            data = result.recordset.map((row) => ({
                 producto: row.Producto,
                 stock: money(row.StockActualUSD),
                 crecimientoPct: pct(row.CrecimientoPct),
@@ -329,8 +384,8 @@ app.get('/api/cartera/kpis-by-product', async (req, res, next) => {
                 amortizacion: money(row.AmortizacionAcumuladaAnioUSD),
                 presupuesto: money(row.PresupuestoStockUSD),
                 cumplimientoPct: pct(row.CumplimientoStockPct)
-            }))
-            : kpisByProduct;
+            }));
+        }
 
         res.json({ data, ...sqlMode() });
     } catch (error) {
@@ -346,11 +401,16 @@ app.get('/api/sistema-financiero/benchmark', async (req, res, next) => {
             fecha: f.fecha,
             sucursal: f.sucursal,
             banco: f.banco,
-            producto: f.producto
+            producto: f.producto,
+            agencia: f.agencia
         });
 
-        if (!result?.recordset?.length) {
+        if (result === null) {
             return res.json({data: benchmark, ...sqlMode()});
+        }
+
+        if (!result.recordset?.length) {
+            return res.json({data: [], ...sqlMode()});
         }
 
         const rows = new Map();
@@ -394,17 +454,23 @@ app.get('/api/sistema-financiero/market-share', async (req, res, next) => {
         const result = await query(queries.marketShare, {
             fecha: f.fecha,
             sucursal: f.sucursal,
-            producto: f.producto
+            producto: f.producto,
+            agencia: f.agencia
         });
 
-        const data = result?.recordset?.length
-            ? result.recordset.map((row) => ({
+        let data;
+        if (result === null) {
+            data = marketShare;
+        } else if (!result.recordset?.length) {
+            data = [];
+        } else {
+            data = result.recordset.map((row) => ({
                 segmentacioncredito: row.segmentacioncredito,
                 montoBNB: money(row.MontoBNBUSD),
                 montoSistema: money(row.MontoSistemaFinancieroUSD),
                 participacionPct: pct(row.ParticipacionBNBPct)
-            }))
-            : marketShare;
+            }));
+        }
 
         res.json({
             data,
@@ -422,16 +488,22 @@ app.get('/api/oficiales/ranking', async (req, res, next) => {
 
         const result = await query(queries.oficiales, {
             fecha: f.fecha,
-            sucursal: f.sucursal
+            sucursal: f.sucursal,
+            agencia: f.agencia
         });
 
-        const data = result?.recordset?.length
-            ? result.recordset.map((row) => ({
+        let data;
+        if (result === null) {
+            data = oficiales;
+        } else if (!result.recordset?.length) {
+            data = [];
+        } else {
+            data = result.recordset.map((row) => ({
                 oficial: row.Oficial,
                 sucursal: row.Sucursal,
                 desembolso: money(row.DesembolsoOficialUSD)
-            }))
-            : oficiales;
+            }));
+        }
 
         res.json({data, ...sqlMode()});
     } catch (error) {

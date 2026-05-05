@@ -12,10 +12,19 @@ export const dates = {
 
 export const catalogs = {
   fechas: ['2026-05-31','2026-04-30', '2026-03-31', '2026-02-28', '2026-01-31', '2025-12-31'],
-  sucursales: ['BENI', 'COCHABAMBA', 'EL ALTO', 'LA PAZ', 'ORURO', 'PANDO', 'POTOSI', 'SANTA CRUZ', 'SUCRE', 'TARIJA'],
-  productosBNB: ['TARJETAS DE CREDITO', 'MICROCREDITO', 'VEHICULAR', 'GRAN EMPRESA', 'PYME MEDIANA', 'VIVIENDA', 'PYME PEQUEÑA', 'CONSUMO', 'VIVIENDA SOCIAL'],
-  productosSF: ['CONSUMO', 'MICROCREDITO', 'VIVIENDA', 'VIVIENDA SOCIAL', 'EMPRESA', 'PYME'],
-  bancos: ['BEC', 'BGA', 'BNB', 'BIE', 'BCR', 'BIS', 'BSO', 'BME']
+  sucursales: ['TODAS', 'BENI', 'COCHABAMBA', 'EL ALTO', 'LA PAZ', 'ORURO', 'PANDO', 'POTOSI', 'SANTA CRUZ', 'SUCRE', 'TARIJA'],
+  productosBNB: ['TODOS', 'TARJETAS DE CREDITO', 'MICROCREDITO', 'VEHICULAR', 'GRAN EMPRESA', 'PYME MEDIANA', 'VIVIENDA', 'PYME PEQUEÑA', 'CONSUMO', 'VIVIENDA SOCIAL'],
+  productosSF: ['TODOS', 'CONSUMO', 'MICROCREDITO', 'VIVIENDA', 'VIVIENDA SOCIAL', 'EMPRESA', 'PYME'],
+  bancos: ['TODOS', 'BEC', 'BGA', 'BNB', 'BIE', 'BCR', 'BIS', 'BSO', 'BME'],
+  agencias: [
+    {cod: 'TODAS', label: 'Todas las agencias', sucursal: null},
+    {cod: 'LP01', label: 'LP01 · LA PAZ', sucursal: 'LA PAZ'},
+    {cod: 'SC01', label: 'SC01 · SANTA CRUZ', sucursal: 'SANTA CRUZ'},
+    {cod: 'CB01', label: 'CB01 · COCHABAMBA', sucursal: 'COCHABAMBA'},
+    {cod: 'TJ01', label: 'TJ01 · TARIJA', sucursal: 'TARIJA'},
+    {cod: 'OR01', label: 'OR01 · ORURO', sucursal: 'ORURO'},
+    {cod: 'EA01', label: 'EA01 · EL ALTO', sucursal: 'EL ALTO'}
+  ]
 };
 
 export const summary = {

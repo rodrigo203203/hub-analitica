@@ -1,5 +1,5 @@
 <script setup>
-import {computed, onMounted, ref, watch} from 'vue';
+import {computed, onMounted, ref} from 'vue';
 import Button from 'primevue/button';
 import Card from 'primevue/card';
 import Chart from 'primevue/chart';
@@ -49,6 +49,30 @@ const dataMode = ref('mock');
 const selectedPeriod = ref('Ultimo corte');
 const periods = ['Ultimo corte', '2026 Q2', '2026 Q1', '2025 cierre'];
 
+/** Productos seleccionados por defecto (segmentación cartera BNB / consumo masivo) */
+const DEFAULT_PRODUCTOS = [
+  'CONSUMO',
+  'VIVIENDA',
+  'VIVIENDA SOCIAL',
+  'TARJETAS DE CREDITO',
+  'VEHICULAR',
+  'MICROCREDITO'
+];
+
+function cloneFilters(src) {
+  return JSON.parse(JSON.stringify(src));
+}
+
+function initialFilterState() {
+  return {
+    fecha: null,
+    sucursal: ['TODAS'],
+    producto: [...DEFAULT_PRODUCTOS],
+    agencia: ['TODAS'],
+    banco: 'TODOS'
+  };
+}
+
 // ─── Catálogos y filtros ──────────────────────────────────────────────────────
 
 const catalogs = ref({
@@ -56,15 +80,14 @@ const catalogs = ref({
   sucursales: ['TODAS'],
   productosBNB: ['TODOS'],
   productosSF: ['TODOS'],
-  bancos: ['TODOS']
+  bancos: ['TODOS'],
+  agencias: []
 });
 
-const filters = ref({
-  fecha: null,
-  sucursal: ['TODAS'],
-  producto: [''],
-  banco: 'TODOS'
-});
+/** Borrador en la barra de filtros */
+const filtersDraft = ref(initialFilterState());
+/** Valores que alimentan KPIs y gráficos tras pulsar Aplicar */
+const filtersApplied = ref(cloneFilters(initialFilterState()));
 
 const chartFilters = ref({
   projectionMetric: 'AMBOS',
@@ -84,7 +107,6 @@ const scenarios = [
 // ─── Datos ────────────────────────────────────────────────────────────────────
 
 const loading = ref(true);
-const initialized = ref(false);   // guard para el watch
 const summary = ref(null);
 const kpis = ref([]);
 const kpisProductData = ref([]);
@@ -413,20 +435,32 @@ const flowChart = computed(() => ({
   ]
 }));
 
+function allowedSucursalesFromAgencias(agFilters) {
+  if (!agFilters?.length || agFilters.includes('TODAS')) return null;
+  const rows = catalogs.value.agencias || [];
+  const set = new Set(
+      rows.filter((a) => agFilters.includes(a.cod) && a.sucursal).map((a) => a.sucursal)
+  );
+  return set.size ? set : null;
+}
+
 const filteredBenchmark = computed(() =>
     benchmark.value.filter((item) => {
-      const sucFilters = filters.value.sucursal || [];
-      const prodFilters = filters.value.producto || [];
+      const sucFilters = filtersApplied.value.sucursal || [];
+      const prodFilters = filtersApplied.value.producto || [];
+      const agSet = allowedSucursalesFromAgencias(filtersApplied.value.agencia);
 
       const bankOk =
-          !filters.value.banco ||
-          filters.value.banco === 'TODOS' ||
-          item.banco === filters.value.banco;
+          !filtersApplied.value.banco ||
+          filtersApplied.value.banco === 'TODOS' ||
+          item.banco === filtersApplied.value.banco;
 
       const branchOk =
           sucFilters.length === 0 ||
           sucFilters.includes('TODAS') ||
           sucFilters.includes(item.sucursal);
+
+      const agencyOk = !agSet || agSet.has(item.sucursal);
 
       const productOk =
           prodFilters.length === 0 ||
@@ -443,13 +477,13 @@ const filteredBenchmark = computed(() =>
           item.producto === chartFilters.value.marketProduct ||
           item.segmentacioncredito === chartFilters.value.marketProduct;
 
-      return bankOk && branchOk && productOk && chartBankOk && chartProductOk;
+      return bankOk && branchOk && agencyOk && productOk && chartBankOk && chartProductOk;
     })
 );
 
 const filteredMarketShare = computed(() =>
     marketShare.value.filter((item) => {
-      const prodFilters = filters.value.producto || [];
+      const prodFilters = filtersApplied.value.producto || [];
       return prodFilters.length === 0 || prodFilters.includes('TODOS') || prodFilters.includes(item.segmentacioncredito);
     })
 );
@@ -642,10 +676,11 @@ const benchmarkTotal = computed(() => {
 async function loadAll() {
   loading.value = true;
   const params = {
-    fecha: filters.value.fecha,
-    sucursal: filters.value.sucursal,
-    producto: filters.value.producto,
-    banco: filters.value.banco
+    fecha: filtersApplied.value.fecha,
+    sucursal: filtersApplied.value.sucursal,
+    producto: filtersApplied.value.producto,
+    agencia: filtersApplied.value.agencia,
+    banco: filtersApplied.value.banco
   };
 
   const [
@@ -667,11 +702,12 @@ async function loadAll() {
   ]);
 
   dataMode.value = health.mode || summaryRes.mode || 'mock';
-  catalogs.value = catalogRes.data;
+  catalogs.value = {...catalogRes.data, agencias: catalogRes.data.agencias || []};
 
-  // Asignar fecha solo si no hay una ya seleccionada
-  if (!filters.value.fecha) {
-    filters.value.fecha = catalogRes.data.fechas?.[0] || null;
+  if (!filtersApplied.value.fecha && catalogRes.data.fechas?.[0]) {
+    const f = catalogRes.data.fechas[0];
+    filtersApplied.value.fecha = f;
+    filtersDraft.value.fecha = f;
   }
 
   summary.value = summaryRes.data;
@@ -712,7 +748,7 @@ async function toggleProjProduct(product) {
 
 async function changeScenario(nextScenario) {
   scenario.value = nextScenario;
-  const response = await api.projection(nextScenario, filters.value);
+  const response = await api.projection(nextScenario, filtersApplied.value);
   projection.value = response.data;
   for (const prod of Object.keys(projectionProductData.value)) {
     const res = await api.projectionByProduct(nextScenario, prod);
@@ -720,14 +756,22 @@ async function changeScenario(nextScenario) {
   }
 }
 
-// Limpiar filtros — siempre producto como array
+function applyFilters() {
+  filtersApplied.value = cloneFilters(filtersDraft.value);
+  loadAll();
+}
+
 function resetFilters() {
-  filters.value = {
+  const next = {
     fecha: catalogs.value.fechas?.[0] || null,
     sucursal: ['TODAS'],
-    producto: ['TODOS'],
+    producto: [...DEFAULT_PRODUCTOS],
+    agencia: ['TODAS'],
     banco: 'TODOS'
   };
+  filtersDraft.value = next;
+  filtersApplied.value = cloneFilters(next);
+  loadAll();
 }
 
 // ─── Chat ─────────────────────────────────────────────────────────────────────
@@ -781,18 +825,7 @@ function heatClass(value) {
 
 onMounted(async () => {
   await loadAll();
-  initialized.value = true;   // habilita el watch después de la carga inicial
 });
-
-// Watch con guard — evita loop en la asignación de filters.fecha dentro de loadAll
-watch(
-    filters,
-    () => {
-      if (!initialized.value) return;
-      loadAll();
-    },
-    {deep: true}
-);
 </script>
 
 <template>
@@ -899,31 +932,51 @@ watch(
       <section v-if="showFilters" class="filter-bar">
         <div>
           <label>Fecha corte</label>
-          <Dropdown v-model="filters.fecha" :options="catalogs.fechas" placeholder="Ultimo corte"/>
+          <Dropdown v-model="filtersDraft.fecha" :options="catalogs.fechas" placeholder="Ultimo corte"/>
         </div>
         <div>
           <label>Sucursal</label>
           <MultiSelect
-              v-model="filters.sucursal"
+              v-model="filtersDraft.sucursal"
               :options="catalogs.sucursales"
               placeholder="Seleccione sucursales"
               :maxSelectedLabels="2"
+              display="chip"
+              :showToggleAll="true"
+          />
+        </div>
+        <div>
+          <label>Agencia</label>
+          <MultiSelect
+              v-model="filtersDraft.agencia"
+              :options="catalogs.agencias"
+              optionLabel="label"
+              optionValue="cod"
+              placeholder="Seleccione agencias"
+              :maxSelectedLabels="2"
+              display="chip"
+              :showToggleAll="true"
           />
         </div>
         <div>
           <label>Producto</label>
           <MultiSelect
-              v-model="filters.producto"
+              v-model="filtersDraft.producto"
               :options="productOptions"
               placeholder="Seleccione productos"
               :maxSelectedLabels="2"
+              display="chip"
+              :showToggleAll="true"
           />
         </div>
         <div v-if="showBankFilter">
           <label>Banco</label>
-          <Dropdown v-model="filters.banco" :options="catalogs.bancos"/>
+          <Dropdown v-model="filtersDraft.banco" :options="catalogs.bancos"/>
         </div>
-        <Button label="Limpiar" outlined @click="resetFilters"/>
+        <div class="filter-actions">
+          <Button label="Aplicar" @click="applyFilters"/>
+          <Button label="Limpiar" outlined @click="resetFilters"/>
+        </div>
       </section>
 
       <section v-if="loading" class="loading-state">
