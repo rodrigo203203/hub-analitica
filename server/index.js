@@ -14,7 +14,7 @@ import {
     summary,
     timeSeries
 } from './mockData.js';
-import {fetchCatalogsFromSql, hasSqlConfig, queries, query} from './sql.js';
+import {fetchCatalogsFromSql, getPool, hasSqlConfig, queries, query} from './sql.js';
 
 const app = express();
 const port = Number(process.env.PORT || 4000);
@@ -26,8 +26,9 @@ app.use(express.json({limit: '1mb'}));
 const money = (value) => Number(value || 0);
 const pct = (value) => (value === null || value === undefined ? null : Number(value));
 
-function sqlMode() {
-    return {mode: hasSqlConfig() ? 'sql-server' : 'mock'};
+async function sqlMode() {
+    const pool = await getPool();
+    return {mode: pool ? 'sql-server' : 'mock'};
 }
 
 function normalizeMulti(value, allValue) {
@@ -231,18 +232,18 @@ function formatShort(value) {
     return `${sign}$${Math.round(abs).toLocaleString('en-US')}`;
 }
 
-app.get('/api/health', (_req, res) => {
-    res.json({ok: true, ...sqlMode()});
+app.get('/api/health', async (_req, res) => {
+    res.json({ok: true, ...await sqlMode()});
 });
 
 app.get('/api/catalogs', async (_req, res, next) => {
     try {
         const fromSql = await fetchCatalogsFromSql();
         if (fromSql) {
-            return res.json({data: fromSql, ...sqlMode()});
+            return res.json({data: fromSql, ...await sqlMode()});
         }
 
-        res.json({data: catalogs, ...sqlMode()});
+        res.json({data: catalogs, ...await sqlMode()});
     } catch (error) {
         next(error);
     }
@@ -271,7 +272,7 @@ app.get('/api/cartera/summary', async (req, res, next) => {
 
         res.json({
             data,
-            ...sqlMode()
+            ...await sqlMode()
         });
     } catch (error) {
         next(error);
@@ -298,7 +299,7 @@ app.get('/api/cartera/kpis', async (req, res, next) => {
             data = buildKpisFromSummary(normalizeSummary(result.recordset[0]));
         }
 
-        res.json({data, ...sqlMode()});
+        res.json({data, ...await sqlMode()});
     } catch (error) {
         next(error);
     }
@@ -331,13 +332,13 @@ app.get('/api/cartera/timeseries', async (req, res, next) => {
             }));
         }
 
-        res.json({data, ...sqlMode()});
+        res.json({data, ...await sqlMode()});
     } catch (error) {
         next(error);
     }
 });
 
-app.get('/api/cartera/projection', (req, res) => {
+app.get('/api/cartera/projection', async (req, res) => {
     const scenario = ['base', 'optimista', 'conservador'].includes(req.query.scenario)
         ? req.query.scenario
         : 'base';
@@ -345,17 +346,17 @@ app.get('/api/cartera/projection', (req, res) => {
     res.json({
         data: getProjection(scenario),
         scenario,
-        ...sqlMode()
+        ...await sqlMode()
     });
 });
 
-app.get('/api/cartera/projection-by-product', (req, res) => {
+app.get('/api/cartera/projection-by-product', async (req, res) => {
     const scenario = req.query.scenario || 'base';
     const product = req.query.product || 'TODOS';
 
     res.json({
         data: getProjectionByProduct(scenario, product),
-        ...sqlMode()
+        ...await sqlMode()
     });
 });
 
@@ -387,7 +388,7 @@ app.get('/api/cartera/kpis-by-product', async (req, res, next) => {
             }));
         }
 
-        res.json({ data, ...sqlMode() });
+        res.json({ data, ...await sqlMode() });
     } catch (error) {
         next(error);
     }
@@ -405,11 +406,11 @@ app.get('/api/sistema-financiero/benchmark', async (req, res, next) => {
         });
 
         if (result === null) {
-            return res.json({data: benchmark, ...sqlMode()});
+            return res.json({data: benchmark, ...await sqlMode()});
         }
 
         if (!result.recordset?.length) {
-            return res.json({data: [], ...sqlMode()});
+            return res.json({data: [], ...await sqlMode()});
         }
 
         const data = result.recordset.map((row) => ({
@@ -422,7 +423,7 @@ app.get('/api/sistema-financiero/benchmark', async (req, res, next) => {
 
         res.json({
             data,
-            ...sqlMode()
+            ...await sqlMode()
         });
     } catch (error) {
         next(error);
@@ -449,14 +450,15 @@ app.get('/api/sistema-financiero/market-share', async (req, res, next) => {
                 segmentacioncredito: row.segmentacioncredito,
                 montoBNB: money(row.MontoBNBUSD),
                 montoSistema: money(row.MontoSistemaFinancieroUSD),
-                participacionPct: pct(row.ParticipacionBNBPct)
+                participacionPct: pct(row.ParticipacionBNBPct),
+                crecimientoPct: pct(row.CrecimientoPct)
             }));
         }
 
         res.json({
             data,
             note: 'El denominador incluye todo el sistema financiero, incluido BNB.',
-            ...sqlMode()
+            ...await sqlMode()
         });
     } catch (error) {
         next(error);
@@ -492,7 +494,7 @@ app.get('/api/oficiales/ranking', async (req, res, next) => {
             }));
         }
 
-        res.json({data, ...sqlMode()});
+        res.json({data, ...await sqlMode()});
     } catch (error) {
         next(error);
     }
@@ -544,7 +546,7 @@ app.get('/api/fuentes/status', async (_req, res, next) => {
                     estado: 'Pendiente'
                 }
             ],
-            ...sqlMode()
+            ...await sqlMode()
         });
     } catch (error) {
         next(error);
@@ -591,7 +593,7 @@ app.post('/api/agent/query', async (req, res, next) => {
                     answer,
                     citations: []
                 },
-                ...sqlMode()
+                ...await sqlMode()
             });
         }
 
@@ -600,7 +602,7 @@ app.post('/api/agent/query', async (req, res, next) => {
                 answer: buildAgentAnswer(prompt),
                 citations: ['Hub_CarteraBNB', 'Hub_CarteraSF', 'Hub_OONN', 'DimAgencia']
             },
-            ...sqlMode()
+            ...await sqlMode()
         });
     } catch (error) {
         next(error);
@@ -636,5 +638,5 @@ app.use((error, _req, res, _next) => {
 
 app.listen(port, host, () => {
     console.log(`Hub Analitico BNB API listening on http://${host}:${port}`);
-    console.log(`Data mode: ${hasSqlConfig() ? 'sql-server' : 'mock'}`);
+    sqlMode().then(m => console.log(`Data mode: ${m.mode}`));
 });

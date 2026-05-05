@@ -5,14 +5,16 @@ import Card from 'primevue/card';
 import Chart from 'primevue/chart';
 import Column from 'primevue/column';
 import DataTable from 'primevue/datatable';
+import Divider from 'primevue/divider';
 import Dropdown from 'primevue/dropdown';
 import MultiSelect from 'primevue/multiselect';
 import ProgressBar from 'primevue/progressbar';
+import Skeleton from 'primevue/skeleton';
 import Tag from 'primevue/tag';
 import Textarea from 'primevue/textarea';
 import { marked } from 'marked';
 import {api} from './api';
-import {dateIso, money, percent} from './format';
+import {dateIso, money, moneyFull, percent} from './format';
 
 const sections = [
   {id: 'portada', label: 'Portada', icon: 'house'},
@@ -46,6 +48,8 @@ const sections = [
 const active = ref('portada');
 const hasEntered = ref(false);
 const menuOpen = ref(false);
+/** Escritorio: sidebar oculto / visible */
+const sidebarCollapsed = ref(false);
 const dataMode = ref('mock');
 const selectedPeriod = ref('Ultimo corte');
 const periods = ['Ultimo corte', '2026 Q2', '2026 Q1', '2025 cierre'];
@@ -421,20 +425,32 @@ const flowChart = computed(() => ({
   labels: flowRows.value.map((item) => item.month),
   datasets: [
     {
-      label: 'Stock USD',
+      label: 'Stock (ejecutado)',
       data: flowRows.value.map((item) => item.stock),
-      backgroundColor: 'rgba(38,180,96,.22)',
       borderColor: '#26b460',
-      borderWidth: 2,
-      borderRadius: {topLeft: 8, topRight: 8}
+      backgroundColor: 'rgba(38,180,96,.14)',
+      borderWidth: 2.5,
+      tension: 0.35,
+      fill: true,
+      pointRadius: 3,
+      pointHoverRadius: 7,
+      pointBackgroundColor: '#26b460',
+      pointBorderColor: '#ffffff',
+      pointBorderWidth: 2
     },
     {
       label: 'Presupuesto',
       data: flowRows.value.map((item) => item.presupuesto),
-      backgroundColor: 'rgba(139,92,246,.18)',
       borderColor: '#8b5cf6',
-      borderWidth: 2,
-      borderRadius: {topLeft: 8, topRight: 8}
+      backgroundColor: 'rgba(139,92,246,.10)',
+      borderWidth: 2.5,
+      tension: 0.35,
+      fill: true,
+      pointRadius: 3,
+      pointHoverRadius: 7,
+      pointBackgroundColor: '#8b5cf6',
+      pointBorderColor: '#ffffff',
+      pointBorderWidth: 2
     }
   ]
 }));
@@ -516,7 +532,7 @@ const compositionChart = computed(() => ({
 }));
 
 const carteraSnapshot = computed(() => [
-  {label: 'Stock', value: money(summary.value?.stockActual), icon: 'chart-line', helper: 'Hub_CarteraBNB.stock'},
+  {label: 'Stock', value: moneyFull(summary.value?.stockActual), icon: 'chart-line', helper: 'Hub_CarteraBNB.stock'},
   {
     label: 'Presupuesto',
     value: money(summary.value?.presupuesto),
@@ -623,17 +639,6 @@ const heroInlineStats = computed(() => [
   }
 ]);
 
-function moneyFull(value) {
-  if (value === null || value === undefined || isNaN(Number(value))) {
-    return '$0.00';
-  }
-
-  return `$${Number(value).toLocaleString('en-US', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  })}`;
-}
-
 function progressValue(value) {
   const n = Number(value);
 
@@ -668,6 +673,17 @@ const benchmarkMatrix = computed(() => {
       }
     });
     rowObj.rowTotal = rowTotal;
+    
+    // Calcular composición para la mini-gráfica
+    rowObj.composition = productos.map((prod, i) => {
+      const val = rowObj[prod];
+      return {
+        label: prod,
+        value: rowTotal > 0 ? ((val?.total || 0) / rowTotal) * 100 : 0,
+        color: PALETTE[i % PALETTE.length]
+      };
+    }).filter(c => c.value > 0);
+
     return rowObj;
   });
 
@@ -806,6 +822,14 @@ function renderMarkdown(text) {
 
 // ─── Navegación ───────────────────────────────────────────────────────────────
 
+function toggleSidebar() {
+  if (typeof window !== 'undefined' && window.matchMedia('(max-width: 780px)').matches) {
+    menuOpen.value = !menuOpen.value;
+  } else {
+    sidebarCollapsed.value = !sidebarCollapsed.value;
+  }
+}
+
 function setActive(id) {
   active.value = id;
   menuOpen.value = false;
@@ -858,7 +882,7 @@ onMounted(async () => {
     </div>
   </section>
 
-  <div v-else class="app-shell">
+  <div v-else class="app-shell" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
     <aside class="sidebar" :class="{ open: menuOpen }">
       <div class="brand">
         <div class="brand-mark">BNB</div>
@@ -922,7 +946,13 @@ onMounted(async () => {
 
     <main class="workspace">
       <header class="topbar">
-        <Button class="mobile-menu" text rounded @click="menuOpen = true">
+        <Button
+            class="sidebar-toggle"
+            text
+            rounded
+            aria-label="Menú lateral"
+            @click="toggleSidebar"
+        >
           <font-awesome-icon icon="bars"/>
         </Button>
         <div>
@@ -1001,6 +1031,15 @@ onMounted(async () => {
       <section v-if="loading" class="loading-state">
         <ProgressBar mode="indeterminate"/>
         <p>Cargando fuentes del hub...</p>
+        <div class="loading-skeletons">
+          <Card v-for="n in 4" :key="n" class="loading-skel-card">
+            <template #content>
+              <Skeleton width="40%" class="mb-3"/>
+              <Skeleton height="2rem" class="mb-2"/>
+              <Skeleton width="70%" height=".85rem"/>
+            </template>
+          </Card>
+        </div>
       </section>
 
       <template v-else>
@@ -1073,12 +1112,14 @@ onMounted(async () => {
         </section>
 
         <!-- ═══ CARTERA ═══════════════════════════════════════════════════════ -->
-        <section v-show="active === 'cartera'" class="page-grid">
+        <section v-show="active === 'cartera'" class="page-grid page-grid-enter">
           <div class="section-header">
             <div><span>Cartera</span>
               <h3>Vista integral del dominio comercial</h3></div>
             <Tag severity="success" value="Interactivo"/>
           </div>
+
+          <Divider class="section-rule"/>
 
           <div class="overview-grid">
             <Card v-for="item in carteraSnapshot" :key="item.label" class="overview-card">
@@ -1092,7 +1133,7 @@ onMounted(async () => {
           </div>
 
           <div class="system-grid">
-            <Card>
+            <Card class="chart-flow-full">
               <template #title>
                 <div class="card-title-row">
                   <span>Evolucion stock vs presupuesto</span>
@@ -1101,8 +1142,8 @@ onMounted(async () => {
                 </div>
               </template>
               <template #content>
-                <div class="chart-box compact">
-                  <Chart type="bar" :data="flowChart" :options="chartOptions"/>
+                <div class="chart-box chart-box-flow">
+                  <Chart type="line" :data="flowChart" :options="chartOptions"/>
                 </div>
               </template>
             </Card>
@@ -1413,6 +1454,7 @@ onMounted(async () => {
                     <th v-for="prod in benchmarkMatrix.productos" :key="prod" style="text-align: center;">
                        {{ prod }}
                     </th>
+                    <th style="text-align: center; width: 140px;">Participación</th>
                     <th style="text-align: center;">Total Banco</th>
                   </tr>
                   </thead>
@@ -1427,17 +1469,31 @@ onMounted(async () => {
                     </td>
                     <td v-for="prod in benchmarkMatrix.productos" :key="prod" style="text-align: center; vertical-align: middle;">
                       <div v-if="row[prod]" class="sf-cell">
-                        <div :class="heatClass(row[prod].crecimientoPct)" style="font-weight: 600; margin-bottom: 4px;">
+                        <div :class="heatClass(row[prod].crecimientoPct)" style="font-weight: 700; font-size: 1.05em; margin-bottom: 4px;">
                           {{ row[prod].crecimientoPct !== null ? (row[prod].crecimientoPct > 0 ? '↑ +' : '↓ ') + row[prod].crecimientoPct.toFixed(2) + '%' : 'Sin datos' }}
                         </div>
-                        <div class="sf-stock" style="font-size: 0.85em; color: #666; font-weight: 500;">
+                        <div class="sf-stock" style="font-size: 0.9em; color: #444; font-weight: 500;">
                           {{ moneyFull(row[prod].total) }}
                         </div>
                       </div>
                       <div v-else class="heat-empty">--</div>
                     </td>
                     <td style="text-align: center; vertical-align: middle;">
-                      <strong>{{ moneyFull(row.rowTotal) }}</strong>
+                      <div class="mini-bar-container" v-if="row.rowTotal > 0">
+                        <div v-for="(seg, si) in row.composition" :key="si"
+                             class="mini-bar-segment"
+                             :style="{ 
+                               width: seg.value + '%', 
+                               backgroundColor: seg.color,
+                               height: '100%',
+                               float: 'left'
+                             }"
+                             :title="seg.label + ': ' + seg.value.toFixed(1) + '%'">
+                        </div>
+                      </div>
+                    </td>
+                    <td style="text-align: center; vertical-align: middle;">
+                      <strong style="font-size: 1.1em;">{{ moneyFull(row.rowTotal) }}</strong>
                     </td>
                   </tr>
                   </tbody>

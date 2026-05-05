@@ -25,8 +25,18 @@ export function hasSqlConfig() {
 
 export async function getPool() {
     if (!hasSqlConfig()) return null;
-    if (!poolPromise) poolPromise = sql.connect(sqlConfig);
-    return poolPromise;
+    try {
+        if (!poolPromise) {
+            poolPromise = sql.connect(sqlConfig).catch(err => {
+                console.error("SQL Connection Error:", err.message);
+                poolPromise = null; // Permite reintentar en la próxima llamada
+                throw err;
+            });
+        }
+        return await poolPromise;
+    } catch (error) {
+        return null;
+    }
 }
 
 function normalizeArrayFilter(value, allValue) {
@@ -430,19 +440,43 @@ export const queries = {
     marketShare: `
         WITH FechaActual AS (SELECT MAX(fechadata) AS FechaReferencia
                              FROM Hub_CarteraSF
-                             WHERE (@fecha IS NULL OR fechadata = @fecha))
-        SELECT sf.segmentacioncredito,
-               SUM(CASE WHEN sf.banco = 'BNB' THEN sf.monto ELSE 0 END) AS MontoBNBUSD,
-               SUM(sf.monto)                                            AS MontoSistemaFinancieroUSD,
+                             WHERE (@fecha IS NULL OR fechadata = @fecha)),
+             BaseDic AS (SELECT MAX(fechadata) AS FechaReferencia
+                         FROM Hub_CarteraSF
+                         WHERE (MONTH(fechadata) = 12 AND YEAR(fechadata) = (SELECT YEAR(FechaReferencia) - 1 FROM FechaActual))
+                            OR (fechadata = (SELECT MIN(fechadata) FROM Hub_CarteraSF))),
+             Actual AS (
+                SELECT sf.segmentacioncredito,
+                       SUM(CASE WHEN sf.banco = 'BNB' THEN sf.monto ELSE 0 END) AS MontoBNBUSD,
+                       SUM(sf.monto)                                            AS MontoSistemaFinancieroUSD
+                FROM Hub_CarteraSF sf
+                         INNER JOIN FechaActual fa ON sf.fechadata = fa.FechaReferencia
+                WHERE (@sucursal IS NULL OR sf.Sucursal = @sucursal)
+                  AND (@producto IS NULL OR sf.segmentacioncredito = @producto)
+                GROUP BY sf.segmentacioncredito
+             ),
+             Base AS (
+                SELECT sf.segmentacioncredito,
+                       SUM(sf.monto) AS MontoSistemaBaseUSD
+                FROM Hub_CarteraSF sf
+                         INNER JOIN BaseDic bd ON sf.fechadata = bd.FechaReferencia
+                WHERE (@sucursal IS NULL OR sf.Sucursal = @sucursal)
+                  AND (@producto IS NULL OR sf.segmentacioncredito = @producto)
+                GROUP BY sf.segmentacioncredito
+             )
+        SELECT a.segmentacioncredito,
+               a.MontoBNBUSD,
+               a.MontoSistemaFinancieroUSD,
                CASE
-                   WHEN SUM(sf.monto) IS NULL OR SUM(sf.monto) = 0 THEN NULL
-                   ELSE (SUM(CASE WHEN sf.banco = 'BNB' THEN sf.monto ELSE 0 END) * 1.0 / SUM(sf.monto)) * 100
-                   END                                                  AS ParticipacionBNBPct
-        FROM Hub_CarteraSF sf
-                 INNER JOIN FechaActual fa ON sf.fechadata = fa.FechaReferencia
-        WHERE (@sucursal IS NULL OR sf.Sucursal = @sucursal)
-          AND (@producto IS NULL OR sf.segmentacioncredito = @producto)
-        GROUP BY sf.segmentacioncredito
+                   WHEN a.MontoSistemaFinancieroUSD IS NULL OR a.MontoSistemaFinancieroUSD = 0 THEN NULL
+                   ELSE (a.MontoBNBUSD * 1.0 / a.MontoSistemaFinancieroUSD) * 100
+                   END AS ParticipacionBNBPct,
+               CASE
+                   WHEN b.MontoSistemaBaseUSD IS NULL OR b.MontoSistemaBaseUSD = 0 THEN NULL
+                   ELSE ((a.MontoSistemaFinancieroUSD * 1.0 / b.MontoSistemaBaseUSD) - 1) * 100
+                   END AS CrecimientoPct
+        FROM Actual a
+        LEFT JOIN Base b ON a.segmentacioncredito = b.segmentacioncredito
         ORDER BY ParticipacionBNBPct DESC;
     `,
 

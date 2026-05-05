@@ -160,6 +160,8 @@ textarea {
   display: flex;
   flex-direction: column;
   z-index: 20;
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s ease;
+  will-change: transform;
 }
 
 .brand {
@@ -289,6 +291,7 @@ textarea {
   width: calc(100% - 280px);
   min-height: 100vh;
   padding: 24px 32px 48px;
+  transition: margin-left 0.28s cubic-bezier(0.4, 0, 0.2, 1), width 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .topbar {
@@ -327,8 +330,80 @@ textarea {
   gap: 10px;
 }
 
-.mobile-menu {
-  display: none;
+.sidebar-toggle {
+  display: inline-flex;
+  color: var(--bnb-green-dark);
+}
+
+@media (min-width: 781px) {
+  .app-shell.sidebar-collapsed .sidebar {
+    transform: translateX(-100%);
+    box-shadow: none;
+    pointer-events: none;
+  }
+
+  .app-shell.sidebar-collapsed .workspace {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+
+.section-rule {
+  margin: 0 0 20px;
+}
+
+.loading-skeletons {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+  width: 100%;
+  max-width: 900px;
+  margin-top: 20px;
+}
+
+.loading-skel-card .p-card-content {
+  padding: 18px;
+}
+
+.system-grid > .chart-flow-full {
+  grid-column: 1 / -1;
+}
+
+.chart-box-flow {
+  height: min(420px, 48vh);
+  min-height: 300px;
+}
+
+.page-grid-enter .overview-card {
+  animation: cardRise 0.5s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.page-grid-enter .overview-grid .overview-card:nth-child(1) {
+  animation-delay: 0.04s;
+}
+
+.page-grid-enter .overview-grid .overview-card:nth-child(2) {
+  animation-delay: 0.1s;
+}
+
+.page-grid-enter .overview-grid .overview-card:nth-child(3) {
+  animation-delay: 0.16s;
+}
+
+.page-grid-enter .overview-grid .overview-card:nth-child(4) {
+  animation-delay: 0.22s;
+}
+
+@keyframes cardRise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .period-select {
@@ -341,21 +416,22 @@ textarea {
 }
 
 .filter-bar {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-  gap: 12px;
-  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-end;
   background: var(--white);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 14px;
-  margin-bottom: 18px;
+  padding: 16px;
+  margin-bottom: 20px;
   position: relative;
   z-index: 12;
 }
 
 .filter-bar .filter-field {
-  min-width: 0;
+  flex: 1 1 200px;
+  min-width: 160px;
 }
 
 .filter-actions {
@@ -1376,10 +1452,6 @@ dd {
     height: auto;
   }
 
-  .mobile-menu {
-    display: inline-flex;
-  }
-
   .topbar-actions {
     display: none;
   }
@@ -1514,4 +1586,34 @@ dd {
   margin-top: 4px;
   margin-bottom: 8px;
   padding-left: 20px;
+}
+/* Mini Bar Chart in Table */
+.mini-bar-container {
+  width: 100%;
+  max-width: 120px;
+  height: 18px;
+  background: var(--soft);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+  margin: 0 auto;
+  border: 1px solid var(--line);
+}
+
+.mini-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--bnb-green-dark), var(--bnb-green));
+  transition: width 0.4s ease;
+}
+
+.mini-bar-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--ink);
+  mix-blend-mode: multiply;
 }

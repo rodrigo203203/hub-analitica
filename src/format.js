@@ -21,6 +21,20 @@ export function money(value) {
 }
 
 /**
+ * Monto USD completo: sin abreviaturas M/B, sin decimales, separador de miles.
+ */
+export function moneyFull(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return '$0';
+  }
+  const n = Number(value);
+  const sign = n < 0 ? '-' : '';
+  return `${sign}$${Math.abs(Math.round(n)).toLocaleString('en-US', {
+    maximumFractionDigits: 0
+  })}`;
+}
+
+/**
  * Formatea un valor numérico como porcentaje con 2 decimales.
  */
 export function percent(value) {
