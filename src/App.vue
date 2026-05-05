@@ -11,7 +11,7 @@ import ProgressBar from 'primevue/progressbar';
 import Tag from 'primevue/tag';
 import Textarea from 'primevue/textarea';
 import {api} from './api';
-import {dateLabel, money, percent} from './format';
+import {dateIso, money, percent} from './format';
 
 const sections = [
   {id: 'portada', label: 'Portada', icon: 'house'},
@@ -435,20 +435,10 @@ const flowChart = computed(() => ({
   ]
 }));
 
-function allowedSucursalesFromAgencias(agFilters) {
-  if (!agFilters?.length || agFilters.includes('TODAS')) return null;
-  const rows = catalogs.value.agencias || [];
-  const set = new Set(
-      rows.filter((a) => agFilters.includes(a.cod) && a.sucursal).map((a) => a.sucursal)
-  );
-  return set.size ? set : null;
-}
-
 const filteredBenchmark = computed(() =>
     benchmark.value.filter((item) => {
       const sucFilters = filtersApplied.value.sucursal || [];
       const prodFilters = filtersApplied.value.producto || [];
-      const agSet = allowedSucursalesFromAgencias(filtersApplied.value.agencia);
 
       const bankOk =
           !filtersApplied.value.banco ||
@@ -459,8 +449,6 @@ const filteredBenchmark = computed(() =>
           sucFilters.length === 0 ||
           sucFilters.includes('TODAS') ||
           sucFilters.includes(item.sucursal);
-
-      const agencyOk = !agSet || agSet.has(item.sucursal);
 
       const productOk =
           prodFilters.length === 0 ||
@@ -477,7 +465,7 @@ const filteredBenchmark = computed(() =>
           item.producto === chartFilters.value.marketProduct ||
           item.segmentacioncredito === chartFilters.value.marketProduct;
 
-      return bankOk && branchOk && agencyOk && productOk && chartBankOk && chartProductOk;
+      return bankOk && branchOk && productOk && chartBankOk && chartProductOk;
     })
 );
 
@@ -930,11 +918,16 @@ onMounted(async () => {
       </header>
 
       <section v-if="showFilters" class="filter-bar">
-        <div>
+        <div class="filter-field">
           <label>Fecha corte</label>
-          <Dropdown v-model="filtersDraft.fecha" :options="catalogs.fechas" placeholder="Ultimo corte"/>
+          <Dropdown
+              v-model="filtersDraft.fecha"
+              :options="catalogs.fechas"
+              placeholder="yyyy-mm-dd"
+              append-to="body"
+          />
         </div>
-        <div>
+        <div class="filter-field">
           <label>Sucursal</label>
           <MultiSelect
               v-model="filtersDraft.sucursal"
@@ -943,22 +936,26 @@ onMounted(async () => {
               :maxSelectedLabels="2"
               display="chip"
               :showToggleAll="true"
+              append-to="body"
           />
         </div>
-        <div>
+        <div class="filter-field">
           <label>Agencia</label>
           <MultiSelect
               v-model="filtersDraft.agencia"
               :options="catalogs.agencias"
               optionLabel="label"
               optionValue="cod"
-              placeholder="Seleccione agencias"
+              placeholder="Cod. agencia (DimAgencia)"
               :maxSelectedLabels="2"
               display="chip"
               :showToggleAll="true"
+              filter
+              filterPlaceholder="Buscar por código o nombre"
+              append-to="body"
           />
         </div>
-        <div>
+        <div class="filter-field">
           <label>Producto</label>
           <MultiSelect
               v-model="filtersDraft.producto"
@@ -967,11 +964,12 @@ onMounted(async () => {
               :maxSelectedLabels="2"
               display="chip"
               :showToggleAll="true"
+              append-to="body"
           />
         </div>
-        <div v-if="showBankFilter">
+        <div v-if="showBankFilter" class="filter-field">
           <label>Banco</label>
-          <Dropdown v-model="filtersDraft.banco" :options="catalogs.bancos"/>
+          <Dropdown v-model="filtersDraft.banco" :options="catalogs.bancos" append-to="body"/>
         </div>
         <div class="filter-actions">
           <Button label="Aplicar" @click="applyFilters"/>
@@ -1176,7 +1174,7 @@ onMounted(async () => {
           <div class="section-header">
             <div><span>Cartera</span>
               <h3>KPIs ejecutivos</h3></div>
-            <Tag severity="info" :value="dateLabel(summary.fechaCorte)"/>
+            <Tag severity="info" :value="dateIso(summary.fechaCorte)"/>
           </div>
 
           <div class="kpi-grid">
@@ -1280,20 +1278,21 @@ onMounted(async () => {
                   <template #body="{ index }"><span class="rank-badge">{{ index + 1 }}</span></template>
                 </Column>
                 <Column field="oficial" header="Oficial"/>
+                <Column field="nombreAgencia" header="Agencia"/>
                 <Column field="sucursal" header="Sucursal"/>
                 <Column header="Desembolso USD" sortable sort-field="desembolso">
                   <template #body="{ data }"><strong>{{ moneyFull(data.desembolso) }}</strong></template>
                 </Column>
-                <Column header="% del total">
+                <Column header="% sucursal" sortable sort-field="participacionSucursalPct">
                   <template #body="{ data }">
                     <div class="rank-bar-wrap">
                       <div
                           class="rank-bar"
-                          :style="{ width: ((data.desembolso / oficiales.reduce((a, o) => a + o.desembolso, 0)) * 100).toFixed(1) + '%' }"
+                          :style="{
+                            width: (Number(data.participacionSucursalPct) || 0).toFixed(1) + '%'
+                          }"
                       ></div>
-                      <span>{{
-                          ((data.desembolso / oficiales.reduce((a, o) => a + o.desembolso, 0)) * 100).toFixed(2)
-                        }}%</span>
+                      <span>{{ percent(data.participacionSucursalPct) }}</span>
                     </div>
                   </template>
                 </Column>
@@ -1321,7 +1320,7 @@ onMounted(async () => {
           <div class="chart-filter-card">
             <div>
               <label>Métrica del gráfico</label>
-              <Dropdown v-model="chartFilters.projectionMetric" :options="projectionMetrics"/>
+              <Dropdown v-model="chartFilters.projectionMetric" :options="projectionMetrics" append-to="body"/>
             </div>
             <div class="proj-products">
               <label>Desglose por producto</label>
@@ -1369,11 +1368,11 @@ onMounted(async () => {
           <div class="chart-filter-card">
             <div>
               <label>Banco del grafico</label>
-              <Dropdown v-model="chartFilters.marketBank" :options="catalogs.bancos"/>
+              <Dropdown v-model="chartFilters.marketBank" :options="catalogs.bancos" append-to="body"/>
             </div>
             <div>
               <label>Producto del grafico</label>
-              <Dropdown v-model="chartFilters.marketProduct" :options="catalogs.productosSF"/>
+              <Dropdown v-model="chartFilters.marketProduct" :options="catalogs.productosSF" append-to="body"/>
             </div>
           </div>
 
@@ -1578,7 +1577,7 @@ onMounted(async () => {
                   </div>
                   <div>
                     <dt>Corte</dt>
-                    <dd>{{ dateLabel(source.fechaCorte) }}</dd>
+                    <dd>{{ dateIso(source.fechaCorte) }}</dd>
                   </div>
                   <div>
                     <dt>Estado</dt>

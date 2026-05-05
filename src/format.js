@@ -40,3 +40,15 @@ export function dateLabel(value) {
     timeZone: 'UTC'
   }).format(new Date(value));
 }
+
+/**
+ * Fecha en formato calendario ISO yyyy-mm-dd (corte, filtros, reportes).
+ */
+export function dateIso(value) {
+  if (value === null || value === undefined || value === '') return '-';
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) {
+    return String(value).slice(0, 10) || '-';
+  }
+  return d.toISOString().slice(0, 10);
+}

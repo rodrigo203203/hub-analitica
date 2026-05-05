@@ -79,38 +79,9 @@ function expandInFilter({
 }
 
 /**
- * Filtro por agencia en Hub_CarteraSF: restricción por sucursales asociadas en DimAgencia.
- */
-function expandAgenciaSfFilter({finalText, request, values, key}) {
-    const regex =
-        /\(\s*@agenciaSf\s+IS\s+NULL\s+OR\s+sf\.Sucursal\s+IN\s*\(\s*SELECT\s+da\.Sucursal\s+FROM\s+DimAgencia\s+da\s+WHERE\s+da\.Cod_Agencia\s*=\s*@agenciaSf\s*\)\s*\)/gi;
-
-    if (Array.isArray(values) && values.length > 0) {
-        const paramNames = values.map((_, i) => `@${key}${i}`);
-        const inClause = paramNames.join(', ');
-        let matched = false;
-        finalText = finalText.replace(
-            regex,
-            () => {
-                matched = true;
-                return `( sf.Sucursal IN (SELECT da.Sucursal FROM DimAgencia da WHERE da.Cod_Agencia IN (${inClause})) )`;
-            }
-        );
-        if (matched) {
-            values.forEach((val, i) => {
-                request.input(`${key}${i}`, sql.NVarChar, String(val));
-            });
-        }
-        return finalText;
-    }
-
-    request.input(key, sql.NVarChar, null);
-    return finalText;
-}
-
-/**
  * Ejecuta una query parametrizada.
  * Soporta filtros múltiples (producto, sucursal, agencia) y sentinela TODOS/TODAS.
+ * El filtro agencia no aplica a Hub_CarteraSF (benchmark / market share).
  */
 
 export async function query(text, inputs = {}) {
@@ -159,8 +130,6 @@ export async function query(text, inputs = {}) {
         fieldBuilder: () => 'd.Cod_Agencia'
     });
 
-    finalText = expandAgenciaSfFilter({finalText, request, values: agencias, key: 'agenciaSf'});
-
     Object.entries(inputsRest).forEach(([inKey, value]) => {
         request.input(inKey, value ?? null);
     });
@@ -169,7 +138,8 @@ export async function query(text, inputs = {}) {
 }
 
 /**
- * Catálogos para filtros cuando hay conexión SQL. Etiqueta de agencia: Cod_Agencia + Sucursal (ajustar si existe columna descriptiva en DimAgencia).
+ * Catálogos para filtros cuando hay conexión SQL.
+ * Fechas como texto yyyy-MM-dd; agencias: Cod_Agencia + columna Agencia (nombre).
  */
 export async function fetchCatalogsFromSql() {
     const pool = await getPool();
@@ -185,7 +155,7 @@ export async function fetchCatalogsFromSql() {
             agRes
         ] = await Promise.all([
             pool.request().query(`
-                SELECT DISTINCT fechadata AS d
+                SELECT DISTINCT FORMAT(CAST(fechadata AS DATE), 'yyyy-MM-dd') AS d
                 FROM Hub_CarteraBNB
                 ORDER BY d DESC
             `),
@@ -216,10 +186,9 @@ export async function fetchCatalogsFromSql() {
             pool.request().query(`
                 SELECT DISTINCT
                     Cod_Agencia AS cod,
-                    CONCAT(
-                        CAST(Cod_Agencia AS NVARCHAR(50)),
-                        N' · ',
-                        Sucursal
+                    (
+                        CAST(Cod_Agencia AS NVARCHAR(50)) + N' · ' +
+                        LTRIM(RTRIM(ISNULL(Agencia, N'')))
                     ) AS label,
                     Sucursal AS sucursal
                 FROM DimAgencia
@@ -227,7 +196,14 @@ export async function fetchCatalogsFromSql() {
             `)
         ]);
 
-        const fechas = (fechasRes.recordset || []).map((row) => row.d).filter(Boolean);
+        const fechas = (fechasRes.recordset || []).map((row) => {
+            const v = row.d;
+            if (!v) return null;
+            if (v instanceof Date) {
+                return v.toISOString().slice(0, 10);
+            }
+            return String(v).slice(0, 10);
+        }).filter(Boolean);
         const sucursales = ['TODAS', ...(sucRes.recordset || []).map((row) => row.s).filter(Boolean)];
         const productosBNB = ['TODOS', ...(prodBnbRes.recordset || []).map((row) => row.p).filter(Boolean)];
         const productosSF = ['TODOS', ...(prodSfRes.recordset || []).map((row) => row.p).filter(Boolean)];
@@ -415,7 +391,6 @@ export const queries = {
                         WHERE (@banco IS NULL OR sf.banco = @banco)
                           AND (@sucursal IS NULL OR sf.Sucursal = @sucursal)
                           AND (@producto IS NULL OR sf.segmentacioncredito = @producto)
-                          AND (@agenciaSf IS NULL OR sf.Sucursal IN (SELECT da.Sucursal FROM DimAgencia da WHERE da.Cod_Agencia = @agenciaSf))
                         GROUP BY sf.banco, sf.Sucursal, sf.segmentacioncredito),
              Base AS (SELECT sf.banco,
                              sf.Sucursal,
@@ -426,7 +401,6 @@ export const queries = {
                       WHERE (@banco IS NULL OR sf.banco = @banco)
                         AND (@sucursal IS NULL OR sf.Sucursal = @sucursal)
                         AND (@producto IS NULL OR sf.segmentacioncredito = @producto)
-                        AND (@agenciaSf IS NULL OR sf.Sucursal IN (SELECT da.Sucursal FROM DimAgencia da WHERE da.Cod_Agencia = @agenciaSf))
                       GROUP BY sf.banco, sf.Sucursal, sf.segmentacioncredito)
         SELECT a.banco,
                a.Sucursal,
@@ -459,7 +433,6 @@ export const queries = {
                  INNER JOIN FechaActual fa ON sf.fechadata = fa.FechaReferencia
         WHERE (@sucursal IS NULL OR sf.Sucursal = @sucursal)
           AND (@producto IS NULL OR sf.segmentacioncredito = @producto)
-          AND (@agenciaSf IS NULL OR sf.Sucursal IN (SELECT da.Sucursal FROM DimAgencia da WHERE da.Cod_Agencia = @agenciaSf))
         GROUP BY sf.segmentacioncredito
         ORDER BY ParticipacionBNBPct DESC;
     `,
@@ -467,17 +440,41 @@ export const queries = {
     oficiales: `
         WITH FechaActual AS (SELECT MAX(FechaData) AS FechaReferencia
                              FROM Hub_OONN
-                             WHERE (@fecha IS NULL OR FechaData = @fecha))
-        SELECT d.Sucursal,
-               o.Oficial,
-               SUM(o.MontoDesembolsoDolares) AS DesembolsoOficialUSD
-        FROM Hub_OONN o
-                 INNER JOIN DimAgencia d ON d.Cod_Agencia = o.ID_AGENCIA
-                 INNER JOIN FechaActual fa ON o.FechaData = fa.FechaReferencia
-        WHERE (@sucursal IS NULL OR d.Sucursal = @sucursal)
-          AND (@agencia IS NULL OR d.Cod_Agencia = @agencia)
-        GROUP BY d.Sucursal, o.Oficial
-        ORDER BY DesembolsoOficialUSD DESC;
+                             WHERE (@fecha IS NULL OR FechaData = @fecha)),
+             TotalesPorSucursal AS (
+                 SELECT d2.Sucursal,
+                        SUM(o2.MontoDesembolsoDolares) AS TotalSucursalUSD
+                 FROM Hub_OONN o2
+                          INNER JOIN DimAgencia d2 ON d2.Cod_Agencia = o2.ID_AGENCIA
+                          INNER JOIN FechaActual fa2 ON o2.FechaData = fa2.FechaReferencia
+                 GROUP BY d2.Sucursal
+             ),
+             Detalle AS (
+                 SELECT d.Sucursal,
+                        o.Oficial,
+                        d.Cod_Agencia,
+                        d.Agencia AS NombreAgencia,
+                        SUM(o.MontoDesembolsoDolares) AS DesembolsoOficialUSD
+                 FROM Hub_OONN o
+                          INNER JOIN DimAgencia d ON d.Cod_Agencia = o.ID_AGENCIA
+                          INNER JOIN FechaActual fa ON o.FechaData = fa.FechaReferencia
+                 WHERE (@sucursal IS NULL OR d.Sucursal = @sucursal)
+                   AND (@agencia IS NULL OR d.Cod_Agencia = @agencia)
+                 GROUP BY d.Sucursal, o.Oficial, d.Cod_Agencia, d.Agencia
+             )
+        SELECT Detalle.Sucursal,
+               Detalle.Oficial,
+               Detalle.Cod_Agencia,
+               Detalle.NombreAgencia,
+               Detalle.DesembolsoOficialUSD,
+               ts.TotalSucursalUSD,
+               CASE
+                   WHEN ts.TotalSucursalUSD IS NULL OR ts.TotalSucursalUSD = 0 THEN NULL
+                   ELSE (Detalle.DesembolsoOficialUSD * 100.0 / ts.TotalSucursalUSD)
+                   END AS ParticipacionSucursalPct
+        FROM Detalle
+                 INNER JOIN TotalesPorSucursal ts ON ts.Sucursal = Detalle.Sucursal
+        ORDER BY Detalle.DesembolsoOficialUSD DESC;
     `,
 
     status: `

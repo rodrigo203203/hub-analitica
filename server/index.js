@@ -401,8 +401,7 @@ app.get('/api/sistema-financiero/benchmark', async (req, res, next) => {
             fecha: f.fecha,
             sucursal: f.sucursal,
             banco: f.banco,
-            producto: f.producto,
-            agencia: f.agencia
+            producto: f.producto
         });
 
         if (result === null) {
@@ -454,8 +453,7 @@ app.get('/api/sistema-financiero/market-share', async (req, res, next) => {
         const result = await query(queries.marketShare, {
             fecha: f.fecha,
             sucursal: f.sucursal,
-            producto: f.producto,
-            agencia: f.agencia
+            producto: f.producto
         });
 
         let data;
@@ -501,7 +499,13 @@ app.get('/api/oficiales/ranking', async (req, res, next) => {
             data = result.recordset.map((row) => ({
                 oficial: row.Oficial,
                 sucursal: row.Sucursal,
-                desembolso: money(row.DesembolsoOficialUSD)
+                codAgencia: row.Cod_Agencia,
+                nombreAgencia: row.NombreAgencia,
+                desembolso: money(row.DesembolsoOficialUSD),
+                participacionSucursalPct:
+                    row.ParticipacionSucursalPct === null || row.ParticipacionSucursalPct === undefined
+                        ? null
+                        : Number(row.ParticipacionSucursalPct)
             }));
         }
 

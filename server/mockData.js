@@ -18,12 +18,12 @@ export const catalogs = {
   bancos: ['TODOS', 'BEC', 'BGA', 'BNB', 'BIE', 'BCR', 'BIS', 'BSO', 'BME'],
   agencias: [
     {cod: 'TODAS', label: 'Todas las agencias', sucursal: null},
-    {cod: 'LP01', label: 'LP01 · LA PAZ', sucursal: 'LA PAZ'},
-    {cod: 'SC01', label: 'SC01 · SANTA CRUZ', sucursal: 'SANTA CRUZ'},
-    {cod: 'CB01', label: 'CB01 · COCHABAMBA', sucursal: 'COCHABAMBA'},
-    {cod: 'TJ01', label: 'TJ01 · TARIJA', sucursal: 'TARIJA'},
-    {cod: 'OR01', label: 'OR01 · ORURO', sucursal: 'ORURO'},
-    {cod: 'EA01', label: 'EA01 · EL ALTO', sucursal: 'EL ALTO'}
+    {cod: 'LP01', label: 'LP01 · Agencia Av. Arce', sucursal: 'LA PAZ'},
+    {cod: 'SC01', label: 'SC01 · Agencia Equipetrol', sucursal: 'SANTA CRUZ'},
+    {cod: 'CB01', label: 'CB01 · Agencia Cala Cala', sucursal: 'COCHABAMBA'},
+    {cod: 'TJ01', label: 'TJ01 · Agencia Central', sucursal: 'TARIJA'},
+    {cod: 'OR01', label: 'OR01 · Agencia Oruro', sucursal: 'ORURO'},
+    {cod: 'EA01', label: 'EA01 · Agencia 16 de Julio', sucursal: 'EL ALTO'}
   ]
 };
 
@@ -260,11 +260,46 @@ export const marketShare = [
   { segmentacioncredito: 'PYME',            montoBNB: 225_000_000, montoSistema: 1_659_000_000, participacionPct: 13.56, crecimientoPct:  6.45 }
 ];
 
-// ─── Oficiales: montos en USD — Hub_OONN.MontoDesembolsoDolares ───
+// ─── Oficiales: Hub_OONN; participacionSucursalPct = monto / total sucursal (demo, total fijo por fila) ───
 export const oficiales = [
-  { oficial: 'Ana Suárez',       sucursal: 'LA PAZ',     desembolso: 13_120_000 },
-  { oficial: 'Carlos Pinto',     sucursal: 'SANTA CRUZ', desembolso: 12_240_000 },
-  { oficial: 'María Gutiérrez',  sucursal: 'COCHABAMBA', desembolso: 10_610_000 },
-  { oficial: 'Rodrigo Méndez',   sucursal: 'TARIJA',     desembolso:  8_970_000 },
-  { oficial: 'Lucía Mercado',    sucursal: 'EL ALTO',    desembolso:  8_110_000 }
+  {
+    oficial: 'Ana Suárez',
+    sucursal: 'LA PAZ',
+    codAgencia: 'LP01',
+    nombreAgencia: 'Agencia Av. Arce',
+    desembolso: 13_120_000,
+    participacionSucursalPct: 32.8
+  },
+  {
+    oficial: 'Carlos Pinto',
+    sucursal: 'SANTA CRUZ',
+    codAgencia: 'SC01',
+    nombreAgencia: 'Agencia Equipetrol',
+    desembolso: 12_240_000,
+    participacionSucursalPct: 48.96
+  },
+  {
+    oficial: 'María Gutiérrez',
+    sucursal: 'COCHABAMBA',
+    codAgencia: 'CB01',
+    nombreAgencia: 'Agencia Cala Cala',
+    desembolso: 10_610_000,
+    participacionSucursalPct: 48.23
+  },
+  {
+    oficial: 'Rodrigo Méndez',
+    sucursal: 'TARIJA',
+    codAgencia: 'TJ01',
+    nombreAgencia: 'Agencia Central',
+    desembolso: 8_970_000,
+    participacionSucursalPct: 47.21
+  },
+  {
+    oficial: 'Lucía Mercado',
+    sucursal: 'EL ALTO',
+    codAgencia: 'EA01',
+    nombreAgencia: 'Agencia 16 de Julio',
+    desembolso: 8_110_000,
+    participacionSucursalPct: 47.71
+  }
 ];
