@@ -148,6 +148,7 @@ export async function fetchCatalogsFromSql() {
     try {
         const [
             fechasRes,
+            fechasSFRes,
             sucRes,
             prodBnbRes,
             prodSfRes,
@@ -157,6 +158,11 @@ export async function fetchCatalogsFromSql() {
             pool.request().query(`
                 SELECT DISTINCT FORMAT(CAST(fechadata AS DATE), 'yyyy-MM-dd') AS d
                 FROM Hub_CarteraBNB
+                ORDER BY d DESC
+            `),
+            pool.request().query(`
+                SELECT DISTINCT FORMAT(CAST(fechadata AS DATE), 'yyyy-MM-dd') AS d
+                FROM Hub_CarteraSF
                 ORDER BY d DESC
             `),
             pool.request().query(`
@@ -196,7 +202,7 @@ export async function fetchCatalogsFromSql() {
             `)
         ]);
 
-        const fechas = (fechasRes.recordset || []).map((row) => {
+        const formatDates = (res) => (res.recordset || []).map((row) => {
             const v = row.d;
             if (!v) return null;
             if (v instanceof Date) {
@@ -204,6 +210,9 @@ export async function fetchCatalogsFromSql() {
             }
             return String(v).slice(0, 10);
         }).filter(Boolean);
+
+        const fechas = formatDates(fechasRes);
+        const fechasSF = formatDates(fechasSFRes);
         const sucursales = ['TODAS', ...(sucRes.recordset || []).map((row) => row.s).filter(Boolean)];
         const productosBNB = ['TODOS', ...(prodBnbRes.recordset || []).map((row) => row.p).filter(Boolean)];
         const productosSF = ['TODOS', ...(prodSfRes.recordset || []).map((row) => row.p).filter(Boolean)];
@@ -215,7 +224,7 @@ export async function fetchCatalogsFromSql() {
         }));
         const agencias = [{cod: 'TODAS', label: 'Todas las agencias', sucursal: null}, ...agRows];
 
-        return {fechas, sucursales, productosBNB, productosSF, bancos, agencias};
+        return {fechas, fechasSF, sucursales, productosBNB, productosSF, bancos, agencias};
     } catch (e) {
         console.error('fetchCatalogsFromSql:', e.message);
         return null;

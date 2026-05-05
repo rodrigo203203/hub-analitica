@@ -12,6 +12,7 @@ export const dates = {
 
 export const catalogs = {
   fechas: ['2026-05-31','2026-04-30', '2026-03-31', '2026-02-28', '2026-01-31', '2025-12-31'],
+  fechasSF: ['2026-04-30', '2026-03-31', '2026-02-28', '2026-01-31', '2025-12-31'],
   sucursales: ['TODAS', 'BENI', 'COCHABAMBA', 'EL ALTO', 'LA PAZ', 'ORURO', 'PANDO', 'POTOSI', 'SANTA CRUZ', 'SUCRE', 'TARIJA'],
   productosBNB: ['TODOS', 'TARJETAS DE CREDITO', 'MICROCREDITO', 'VEHICULAR', 'GRAN EMPRESA', 'PYME MEDIANA', 'VIVIENDA', 'PYME PEQUEÑA', 'CONSUMO', 'VIVIENDA SOCIAL'],
   productosSF: ['TODOS', 'CONSUMO', 'MICROCREDITO', 'VIVIENDA', 'VIVIENDA SOCIAL', 'EMPRESA', 'PYME'],
@@ -240,14 +241,37 @@ export const kpisByProduct = [
 // stockBNB = stock actual de BNB en ese segmento (USD)
 // stockSistema = stock total del sistema financiero en ese segmento (USD)
 export const benchmark = [
-  { banco: 'BEC', sucursal: 'LA PAZ',     producto: 'CONSUMO',        vehicular: -2.32, vivienda:  1.40, viviendaSocial:  0.82, stockBNB: 210_000_000, stockSistema: 1_362_000_000, total: 385_000_000 },
-  { banco: 'BGA', sucursal: 'SANTA CRUZ', producto: 'PYME',            vehicular: -1.10, vivienda:  2.14, viviendaSocial:  1.31, stockBNB: 225_000_000, stockSistema: 1_659_000_000, total: 460_000_000 },
-  { banco: 'BNB', sucursal: 'LA PAZ',     producto: 'CONSUMO',         vehicular: -3.78, vivienda:  1.82, viviendaSocial:  1.09, stockBNB: 210_000_000, stockSistema: 1_362_000_000, total: 426_000_000 },
-  { banco: 'BIE', sucursal: 'COCHABAMBA', producto: 'MICROCREDITO',    vehicular: -4.08, vivienda:  0.91, viviendaSocial:  1.88, stockBNB: 126_000_000, stockSistema: 1_115_000_000, total: 364_000_000 },
-  { banco: 'BIS', sucursal: 'SANTA CRUZ', producto: 'VIVIENDA',        vehicular: -2.63, vivienda:  1.12, viviendaSocial:  0.41, stockBNB: 253_000_000, stockSistema: 1_516_000_000, total: 302_000_000 },
-  { banco: 'BME', sucursal: 'TARIJA',     producto: 'EMPRESA',         vehicular: -2.52, vivienda:  0.62, viviendaSocial:  0.21, stockBNB: 315_000_000, stockSistema: 2_184_000_000, total: 234_000_000 },
-  { banco: 'BCR', sucursal: 'ORURO',      producto: 'VIVIENDA SOCIAL', vehicular: -3.96, vivienda:  1.22, viviendaSocial:  0.71, stockBNB: 108_000_000, stockSistema:  777_000_000, total: 259_000_000 },
-  { banco: 'BSO', sucursal: 'SANTA CRUZ', producto: 'CONSUMO',         vehicular:  2.58, vivienda:  1.73, viviendaSocial:  1.52, stockBNB: 210_000_000, stockSistema: 1_362_000_000, total: 527_000_000 }
+  { banco: 'BEC', sucursal: 'LA PAZ', producto: 'CONSUMO', crecimientoPct: -2.32, total: 185_000_000 },
+  { banco: 'BEC', sucursal: 'LA PAZ', producto: 'VIVIENDA', crecimientoPct: 1.40, total: 100_000_000 },
+  { banco: 'BEC', sucursal: 'LA PAZ', producto: 'VIVIENDA SOCIAL', crecimientoPct: 0.82, total: 100_000_000 },
+  
+  { banco: 'BGA', sucursal: 'SANTA CRUZ', producto: 'PYME', crecimientoPct: -1.10, total: 260_000_000 },
+  { banco: 'BGA', sucursal: 'SANTA CRUZ', producto: 'VIVIENDA', crecimientoPct: 2.14, total: 100_000_000 },
+  { banco: 'BGA', sucursal: 'SANTA CRUZ', producto: 'VIVIENDA SOCIAL', crecimientoPct: 1.31, total: 100_000_000 },
+  
+  { banco: 'BNB', sucursal: 'LA PAZ', producto: 'CONSUMO', crecimientoPct: -3.78, total: 210_000_000 },
+  { banco: 'BNB', sucursal: 'LA PAZ', producto: 'VIVIENDA', crecimientoPct: 1.82, total: 116_000_000 },
+  { banco: 'BNB', sucursal: 'LA PAZ', producto: 'VIVIENDA SOCIAL', crecimientoPct: 1.09, total: 100_000_000 },
+  
+  { banco: 'BIE', sucursal: 'COCHABAMBA', producto: 'MICROCREDITO', crecimientoPct: -4.08, total: 164_000_000 },
+  { banco: 'BIE', sucursal: 'COCHABAMBA', producto: 'VIVIENDA', crecimientoPct: 0.91, total: 100_000_000 },
+  { banco: 'BIE', sucursal: 'COCHABAMBA', producto: 'VIVIENDA SOCIAL', crecimientoPct: 1.88, total: 100_000_000 },
+  
+  { banco: 'BIS', sucursal: 'SANTA CRUZ', producto: 'CONSUMO', crecimientoPct: -2.63, total: 102_000_000 },
+  { banco: 'BIS', sucursal: 'SANTA CRUZ', producto: 'VIVIENDA', crecimientoPct: 1.12, total: 100_000_000 },
+  { banco: 'BIS', sucursal: 'SANTA CRUZ', producto: 'VIVIENDA SOCIAL', crecimientoPct: 0.41, total: 100_000_000 },
+  
+  { banco: 'BME', sucursal: 'TARIJA', producto: 'EMPRESA', crecimientoPct: -2.52, total: 134_000_000 },
+  { banco: 'BME', sucursal: 'TARIJA', producto: 'VIVIENDA', crecimientoPct: 0.62, total: 50_000_000 },
+  { banco: 'BME', sucursal: 'TARIJA', producto: 'VIVIENDA SOCIAL', crecimientoPct: 0.21, total: 50_000_000 },
+  
+  { banco: 'BCR', sucursal: 'ORURO', producto: 'CONSUMO', crecimientoPct: -3.96, total: 59_000_000 },
+  { banco: 'BCR', sucursal: 'ORURO', producto: 'VIVIENDA', crecimientoPct: 1.22, total: 100_000_000 },
+  { banco: 'BCR', sucursal: 'ORURO', producto: 'VIVIENDA SOCIAL', crecimientoPct: 0.71, total: 100_000_000 },
+  
+  { banco: 'BSO', sucursal: 'SANTA CRUZ', producto: 'CONSUMO', crecimientoPct: 2.58, total: 327_000_000 },
+  { banco: 'BSO', sucursal: 'SANTA CRUZ', producto: 'VIVIENDA', crecimientoPct: 1.73, total: 100_000_000 },
+  { banco: 'BSO', sucursal: 'SANTA CRUZ', producto: 'VIVIENDA SOCIAL', crecimientoPct: 1.52, total: 100_000_000 }
 ];
 
 // ─── Market share en USD ───

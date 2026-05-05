@@ -116,6 +116,7 @@ const selectedProjProducts = ref(['CONSUMO', 'VIVIENDA']);
 const benchmark = ref([]);
 const marketShare = ref([]);
 const oficiales = ref([]);
+const oficialesFirst = ref(0);
 const fuentes = ref([]);
 const filteredTimeSeries = ref([]);
 const heatSortKey = ref('banco');
@@ -145,6 +146,8 @@ const productOptions = computed(() =>
 );
 
 const showBankFilter = computed(() => active.value === 'sistema');
+
+const dateOptions = computed(() => active.value === 'sistema' ? catalogs.value.fechasSF || catalogs.value.fechas : catalogs.value.fechas);
 
 const showFilters = computed(() =>
     !['gobernanza', 'agente', 'actualizaciones'].includes(active.value)
@@ -437,18 +440,12 @@ const flowChart = computed(() => ({
 
 const filteredBenchmark = computed(() =>
     benchmark.value.filter((item) => {
-      const sucFilters = filtersApplied.value.sucursal || [];
       const prodFilters = filtersApplied.value.producto || [];
 
       const bankOk =
           !filtersApplied.value.banco ||
           filtersApplied.value.banco === 'TODOS' ||
           item.banco === filtersApplied.value.banco;
-
-      const branchOk =
-          sucFilters.length === 0 ||
-          sucFilters.includes('TODAS') ||
-          sucFilters.includes(item.sucursal);
 
       const productOk =
           prodFilters.length === 0 ||
@@ -465,7 +462,7 @@ const filteredBenchmark = computed(() =>
           item.producto === chartFilters.value.marketProduct ||
           item.segmentacioncredito === chartFilters.value.marketProduct;
 
-      return bankOk && branchOk && productOk && chartBankOk && chartProductOk;
+      return bankOk && productOk && chartBankOk && chartProductOk;
     })
 );
 
@@ -649,14 +646,14 @@ function progressValue(value) {
 const sortedBenchmark = computed(() => {
   const rows = [...filteredBenchmark.value];
   if (heatSortKey.value === 'banco') return rows.sort((a, b) => a.banco.localeCompare(b.banco));
-  return rows.sort((a, b) => (b[heatSortKey.value] ?? -999) - (a[heatSortKey.value] ?? -999));
+  if (heatSortKey.value === 'crecimientoPct') return rows.sort((a, b) => (b.crecimientoPct ?? -999) - (a.crecimientoPct ?? -999));
+  if (heatSortKey.value === 'total') return rows.sort((a, b) => (b.total ?? -999) - (a.total ?? -999));
+  return rows;
 });
 
 const benchmarkTotal = computed(() => {
-  const veh = filteredBenchmark.value.reduce((s, r) => s + (r.vehicular ?? 0), 0);
-  const viv = filteredBenchmark.value.reduce((s, r) => s + (r.vivienda ?? 0), 0) || null;
-  const soc = filteredBenchmark.value.reduce((s, r) => s + (r.viviendaSocial ?? 0), 0) || null;
-  return {banco: 'TOTAL SISTEMA', vehicular: veh, vivienda: viv, viviendaSocial: soc};
+  const sumTotal = filteredBenchmark.value.reduce((s, r) => s + (r.total || 0), 0);
+  return {banco: 'TOTAL SISTEMA', total: sumTotal};
 });
 
 // ─── Carga de datos ───────────────────────────────────────────────────────────
@@ -922,7 +919,7 @@ onMounted(async () => {
           <label>Fecha corte</label>
           <Dropdown
               v-model="filtersDraft.fecha"
-              :options="catalogs.fechas"
+              :options="dateOptions"
               placeholder="yyyy-mm-dd"
               append-to="body"
           />
@@ -1267,6 +1264,7 @@ onMounted(async () => {
             <template #content>
               <DataTable
                   :value="oficiales"
+                  v-model:first="oficialesFirst"
                   responsive-layout="scroll"
                   paginator
                   :rows="15"
@@ -1275,7 +1273,7 @@ onMounted(async () => {
                   :sortOrder="-1"
               >
                 <Column header="#" style="width:42px;text-align:center">
-                  <template #body="{ index }"><span class="rank-badge">{{ index + 1 }}</span></template>
+                  <template #body="{ index }"><span class="rank-badge">{{ oficialesFirst + index + 1 }}</span></template>
                 </Column>
                 <Column field="oficial" header="Oficial"/>
                 <Column field="nombreAgencia" header="Agencia"/>
@@ -1383,17 +1381,14 @@ onMounted(async () => {
                   <span>Heatmap por banco — crecimiento (%)</span>
                   <div class="heat-sort-bar">
                     <span>Ordenar:</span>
-                    <button class="heat-sort-btn" :class="{ active: heatSortKey === 'banco'         }"
+                    <button class="heat-sort-btn" :class="{ active: heatSortKey === 'banco' }"
                             @click="heatSortKey = 'banco'">Banco
                     </button>
-                    <button class="heat-sort-btn" :class="{ active: heatSortKey === 'vehicular'     }"
-                            @click="heatSortKey = 'vehicular'">Vehicular
+                    <button class="heat-sort-btn" :class="{ active: heatSortKey === 'total' }"
+                            @click="heatSortKey = 'total'">Stock Total
                     </button>
-                    <button class="heat-sort-btn" :class="{ active: heatSortKey === 'vivienda'      }"
-                            @click="heatSortKey = 'vivienda'">Vivienda
-                    </button>
-                    <button class="heat-sort-btn" :class="{ active: heatSortKey === 'viviendaSocial'}"
-                            @click="heatSortKey = 'viviendaSocial'">Viv. Social
+                    <button class="heat-sort-btn" :class="{ active: heatSortKey === 'crecimientoPct' }"
+                            @click="heatSortKey = 'crecimientoPct'">Crecimiento
                     </button>
                   </div>
                 </div>
@@ -1403,14 +1398,13 @@ onMounted(async () => {
                   <thead>
                   <tr>
                     <th>Banco</th>
+                    <th>Producto</th>
                     <th>Stock Total (USD)</th>
-                    <th>Cons./Vehicular</th>
-                    <th>Vivienda</th>
-                    <th>Viv. Social</th>
+                    <th>Crecimiento vs Dic</th>
                   </tr>
                   </thead>
                   <tbody>
-                  <tr v-for="row in sortedBenchmark" :key="row.banco" :class="{ 'bnb-row': row.banco === 'BNB' }">
+                  <tr v-for="(row, i) in sortedBenchmark" :key="row.banco + '-' + row.producto + '-' + i" :class="{ 'bnb-row': row.banco === 'BNB' }">
                     <td>
                       <div class="bname">
                         <span class="bdot" :class="{ bnb: row.banco === 'BNB' }"></span>
@@ -1418,26 +1412,17 @@ onMounted(async () => {
                         <span v-else>{{ row.banco }}</span>
                       </div>
                     </td>
+                    <td>{{ row.producto }}</td>
                     <td><strong>{{ money(row.total) }}</strong></td>
-                    <td><span :class="heatClass(row.vehicular)">{{
-                        row.vehicular !== null ? (row.vehicular > 0 ? '↑ +' : '↓ ') + row.vehicular.toFixed(3) + '%' : 'Sin datos'
-                      }}</span></td>
-                    <td><span :class="heatClass(row.vivienda)">{{
-                        row.vivienda !== null ? (row.vivienda > 0 ? '↑ +' : '↓ ') + row.vivienda.toFixed(3) + '%' : 'Sin datos'
-                      }}</span></td>
-                    <td><span :class="heatClass(row.viviendaSocial)">{{
-                        row.viviendaSocial !== null ? (row.viviendaSocial > 0 ? '↑ +' : '↓ ') + row.viviendaSocial.toFixed(3) + '%' : 'Sin datos'
+                    <td><span :class="heatClass(row.crecimientoPct)">{{
+                        row.crecimientoPct !== null ? (row.crecimientoPct > 0 ? '↑ +' : '↓ ') + row.crecimientoPct.toFixed(3) + '%' : 'Sin datos'
                       }}</span></td>
                   </tr>
                   <tr class="total-row">
                     <td><strong>TOTAL SISTEMA</strong></td>
-                    <td><strong>{{ money(sortedBenchmark.reduce((sum, row) => sum + (row.total || 0), 0)) }}</strong>
-                    </td>
-                    <td><span :class="heatClass(benchmarkTotal.vehicular)">{{
-                        benchmarkTotal.vehicular !== null ? (benchmarkTotal.vehicular > 0 ? '↑ +' : '↓ ') + benchmarkTotal.vehicular.toFixed(3) + '%' : 'Sin datos'
-                      }}</span></td>
-                    <td><span class="heat-empty">Sin datos</span></td>
-                    <td><span class="heat-empty">Sin datos</span></td>
+                    <td></td>
+                    <td><strong>{{ money(benchmarkTotal.total) }}</strong></td>
+                    <td><span class="heat-empty">--</span></td>
                   </tr>
                   </tbody>
                 </table>

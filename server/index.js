@@ -412,33 +412,16 @@ app.get('/api/sistema-financiero/benchmark', async (req, res, next) => {
             return res.json({data: [], ...sqlMode()});
         }
 
-        const rows = new Map();
-
-        result.recordset.forEach((row) => {
-            const key = `${row.banco}`;
-
-            const current = rows.get(key) || {
-                banco: row.banco,
-                sucursal: row.Sucursal,
-                vehicular: null,
-                vivienda: null,
-                viviendaSocial: null,
-                total: 0
-            };
-
-            const segment = String(row.segmentacioncredito || '').toUpperCase();
-
-            if (segment === 'CONSUMO') current.vehicular = pct(row.CrecimientoPct);
-            if (segment === 'VIVIENDA') current.vivienda = pct(row.CrecimientoPct);
-            if (segment === 'VIVIENDA SOCIAL') current.viviendaSocial = pct(row.CrecimientoPct);
-
-            current.total += money(row.MontoActualUSD);
-
-            rows.set(key, current);
-        });
+        const data = result.recordset.map((row) => ({
+            banco: row.banco,
+            sucursal: row.Sucursal,
+            producto: row.segmentacioncredito,
+            crecimientoPct: pct(row.CrecimientoPct),
+            total: money(row.MontoActualUSD)
+        }));
 
         res.json({
-            data: Array.from(rows.values()),
+            data,
             ...sqlMode()
         });
     } catch (error) {
