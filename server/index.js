@@ -559,6 +559,42 @@ app.post('/api/agent/query', async (req, res, next) => {
             return res.status(400).json({error: 'message is required'});
         }
 
+        const url = process.env.ANYTHING_LLM_URL;
+        const workspace = process.env.ANYTHING_LLM_WORKSPACE;
+        const apiKey = process.env.ANYTHING_LLM_API_KEY;
+
+        if (url && workspace && apiKey) {
+            const finalMessage = `${prompt}\n\nPor favor usa el mcp 'Mcp Comerial' ejecutando el comando consultar_datos_comerciales.`;
+
+            const response = await fetch(`${url}/api/v1/workspace/${workspace}/chat`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    message: finalMessage,
+                    mode: 'chat'
+                })
+            });
+
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(`AnythingLLM error: ${response.status} ${text}`);
+            }
+
+            const data = await response.json();
+            const answer = data.textResponse || data.text || data.response || "Sin respuesta del modelo.";
+
+            return res.json({
+                data: {
+                    answer,
+                    citations: []
+                },
+                ...sqlMode()
+            });
+        }
+
         res.json({
             data: {
                 answer: buildAgentAnswer(prompt),

@@ -643,17 +643,33 @@ function progressValue(value) {
   return Math.max(0, Math.min(n, 100));
 }
 
-const sortedBenchmark = computed(() => {
-  const rows = [...filteredBenchmark.value];
-  if (heatSortKey.value === 'banco') return rows.sort((a, b) => a.banco.localeCompare(b.banco));
-  if (heatSortKey.value === 'crecimientoPct') return rows.sort((a, b) => (b.crecimientoPct ?? -999) - (a.crecimientoPct ?? -999));
-  if (heatSortKey.value === 'total') return rows.sort((a, b) => (b.total ?? -999) - (a.total ?? -999));
-  return rows;
-});
+const benchmarkMatrix = computed(() => {
+  const rows = filteredBenchmark.value;
+  const productos = [...new Set(rows.map(r => r.producto).filter(Boolean))].sort();
+  const bancosSet = new Set(rows.map(r => r.banco).filter(Boolean));
+  const bancos = Array.from(bancosSet).sort((a, b) => {
+    if (a === 'BNB') return -1;
+    if (b === 'BNB') return 1;
+    return a.localeCompare(b);
+  });
 
-const benchmarkTotal = computed(() => {
-  const sumTotal = filteredBenchmark.value.reduce((s, r) => s + (r.total || 0), 0);
-  return {banco: 'TOTAL SISTEMA', total: sumTotal};
+  const matrix = productos.map(prod => {
+    const rowObj = { producto: prod };
+    let rowTotal = 0;
+    bancos.forEach(banco => {
+      const found = rows.find(r => r.producto === prod && r.banco === banco);
+      if (found) {
+        rowObj[banco] = { crecimientoPct: found.crecimientoPct, total: found.total };
+        rowTotal += (found.total || 0);
+      } else {
+        rowObj[banco] = null;
+      }
+    });
+    rowObj.rowTotal = rowTotal;
+    return rowObj;
+  });
+
+  return { bancos, matrix };
 });
 
 // ─── Carga de datos ───────────────────────────────────────────────────────────
@@ -1379,50 +1395,37 @@ onMounted(async () => {
               <template #title>
                 <div class="card-title-row">
                   <span>Heatmap por banco — crecimiento (%)</span>
-                  <div class="heat-sort-bar">
-                    <span>Ordenar:</span>
-                    <button class="heat-sort-btn" :class="{ active: heatSortKey === 'banco' }"
-                            @click="heatSortKey = 'banco'">Banco
-                    </button>
-                    <button class="heat-sort-btn" :class="{ active: heatSortKey === 'total' }"
-                            @click="heatSortKey = 'total'">Stock Total
-                    </button>
-                    <button class="heat-sort-btn" :class="{ active: heatSortKey === 'crecimientoPct' }"
-                            @click="heatSortKey = 'crecimientoPct'">Crecimiento
-                    </button>
-                  </div>
                 </div>
               </template>
               <template #content>
-                <table class="heat-table">
+                <table class="heat-table sf-matrix-table">
                   <thead>
                   <tr>
-                    <th>Banco</th>
                     <th>Producto</th>
-                    <th>Stock Total (USD)</th>
-                    <th>Crecimiento vs Dic</th>
+                    <th v-for="banco in benchmarkMatrix.bancos" :key="banco" :class="{ 'bnb-col': banco === 'BNB' }" style="text-align: center;">
+                       <span class="bdot" :class="{ bnb: banco === 'BNB' }" style="display:inline-block; margin-right:4px;"></span>
+                       {{ banco }}
+                    </th>
+                    <th style="text-align: center;">Total Sistema</th>
                   </tr>
                   </thead>
                   <tbody>
-                  <tr v-for="(row, i) in sortedBenchmark" :key="row.banco + '-' + row.producto + '-' + i" :class="{ 'bnb-row': row.banco === 'BNB' }">
-                    <td>
-                      <div class="bname">
-                        <span class="bdot" :class="{ bnb: row.banco === 'BNB' }"></span>
-                        <strong v-if="row.banco === 'BNB'">{{ row.banco }}</strong>
-                        <span v-else>{{ row.banco }}</span>
+                  <tr v-for="row in benchmarkMatrix.matrix" :key="row.producto">
+                    <td><strong>{{ row.producto }}</strong></td>
+                    <td v-for="banco in benchmarkMatrix.bancos" :key="banco" :class="{ 'bnb-col': banco === 'BNB' }" style="text-align: center; vertical-align: middle;">
+                      <div v-if="row[banco]" class="sf-cell">
+                        <div :class="heatClass(row[banco].crecimientoPct)" style="font-weight: 600; margin-bottom: 4px;">
+                          {{ row[banco].crecimientoPct !== null ? (row[banco].crecimientoPct > 0 ? '↑ +' : '↓ ') + row[banco].crecimientoPct.toFixed(2) + '%' : 'Sin datos' }}
+                        </div>
+                        <div class="sf-stock" style="font-size: 0.85em; color: #666; font-weight: 500;">
+                          {{ moneyFull(row[banco].total) }}
+                        </div>
                       </div>
+                      <div v-else class="heat-empty">--</div>
                     </td>
-                    <td>{{ row.producto }}</td>
-                    <td><strong>{{ money(row.total) }}</strong></td>
-                    <td><span :class="heatClass(row.crecimientoPct)">{{
-                        row.crecimientoPct !== null ? (row.crecimientoPct > 0 ? '↑ +' : '↓ ') + row.crecimientoPct.toFixed(3) + '%' : 'Sin datos'
-                      }}</span></td>
-                  </tr>
-                  <tr class="total-row">
-                    <td><strong>TOTAL SISTEMA</strong></td>
-                    <td></td>
-                    <td><strong>{{ money(benchmarkTotal.total) }}</strong></td>
-                    <td><span class="heat-empty">--</span></td>
+                    <td style="text-align: center; vertical-align: middle;">
+                      <strong>{{ moneyFull(row.rowTotal) }}</strong>
+                    </td>
                   </tr>
                   </tbody>
                 </table>
