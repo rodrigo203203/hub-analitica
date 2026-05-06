@@ -377,18 +377,27 @@ app.get('/api/cartera/kpis-by-product', async (req, res, next) => {
         } else if (!result.recordset?.length) {
             data = [];
         } else {
-            data = result.recordset.map((row) => ({
-                producto: row.Producto,
-                stock: money(row.StockActualUSD),
-                crecimientoPct: pct(row.CrecimientoPct),
-                desembolsos: money(row.DesembolsoAcumuladoAnioUSD),
-                amortizacion: money(row.AmortizacionAcumuladaAnioUSD),
-                presupuesto: money(row.PresupuestoStockUSD),
-                cumplimientoPct: pct(row.CumplimientoStockPct)
-            }));
+            data = result.recordset.map((row) => {
+                const stockActual = money(row.StockActualUSD);
+                const stockBase = money(row.StockBaseUSD);
+
+                return {
+                    producto: row.Producto,
+                    stock: stockActual,
+                    stockBase,
+                    crecimientoMonto: row.CrecimientoNominalUSD !== null && row.CrecimientoNominalUSD !== undefined
+                        ? money(row.CrecimientoNominalUSD)
+                        : stockActual - stockBase,
+                    crecimientoPct: pct(row.CrecimientoPct),
+                    desembolsos: money(row.DesembolsoAcumuladoAnioUSD),
+                    amortizacion: money(row.AmortizacionAcumuladaAnioUSD),
+                    presupuesto: money(row.PresupuestoStockUSD),
+                    cumplimientoPct: pct(row.CumplimientoStockPct)
+                };
+            });
         }
 
-        res.json({ data, ...await sqlMode() });
+        res.json({data, ...await sqlMode()});
     } catch (error) {
         next(error);
     }
@@ -414,10 +423,13 @@ app.get('/api/sistema-financiero/benchmark', async (req, res, next) => {
         }
 
         const data = result.recordset.map((row) => ({
+            fechaCorteSF: row.FechaCorteSF,
             banco: row.banco,
-            sucursal: row.Sucursal,
             producto: row.segmentacioncredito,
             crecimientoPct: pct(row.CrecimientoPct),
+            crecimientoTotal: money(row.CrecimientoTotalUSD),
+            stock: money(row.MontoActualUSD),
+            stockBase: money(row.MontoBaseUSD),
             total: money(row.MontoActualUSD)
         }));
 
@@ -447,9 +459,12 @@ app.get('/api/sistema-financiero/market-share', async (req, res, next) => {
             data = [];
         } else {
             data = result.recordset.map((row) => ({
+                fechaCorteSF: row.FechaCorteSF,
                 segmentacioncredito: row.segmentacioncredito,
                 montoBNB: money(row.MontoBNBUSD),
                 montoSistema: money(row.MontoSistemaFinancieroUSD),
+                montoSistemaBase: money(row.MontoSistemaBaseUSD),
+                crecimientoTotal: money(row.CrecimientoTotalUSD),
                 participacionPct: pct(row.ParticipacionBNBPct),
                 crecimientoPct: pct(row.CrecimientoPct)
             }));
@@ -487,10 +502,10 @@ app.get('/api/oficiales/ranking', async (req, res, next) => {
                 codAgencia: row.Cod_Agencia,
                 nombreAgencia: row.NombreAgencia,
                 desembolso: money(row.DesembolsoOficialUSD),
-                participacionSucursalPct:
-                    row.ParticipacionSucursalPct === null || row.ParticipacionSucursalPct === undefined
+                participacionAportePct:
+                    row.ParticipacionAportePct === null || row.ParticipacionAportePct === undefined
                         ? null
-                        : Number(row.ParticipacionSucursalPct)
+                        : Number(row.ParticipacionAportePct)
             }));
         }
 
@@ -556,6 +571,7 @@ app.get('/api/fuentes/status', async (_req, res, next) => {
 app.post('/api/agent/query', async (req, res, next) => {
     try {
         const prompt = String(req.body?.message || '').trim();
+        const useMcp = Boolean(req.body?.useMcp); // Capturamos el nuevo flag
 
         if (!prompt) {
             return res.status(400).json({error: 'message is required'});
@@ -566,7 +582,11 @@ app.post('/api/agent/query', async (req, res, next) => {
         const apiKey = process.env.ANYTHING_LLM_API_KEY;
 
         if (url && workspace && apiKey) {
-            const finalMessage = `${prompt}\n\nPor favor usa el mcp 'Mcp Comerial' ejecutando el comando consultar_datos_comerciales.`;
+            // Construimos el mensaje condicionalmente
+            let finalMessage = prompt;
+            if (useMcp) {
+                finalMessage += `\n\nPor favor usa el mcp 'Mcp Comerial' ejecutando el comando consultar_datos_comerciales.`;
+            }
 
             const response = await fetch(`${url}/api/v1/workspace/${workspace}/chat`, {
                 method: 'POST',

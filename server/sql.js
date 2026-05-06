@@ -253,7 +253,7 @@ export const queries = {
                                SUM(s.Desembolso)   AS DesembolsoMesUSD,
                                SUM(s.pendiente)    AS PendienteUSD,
                                SUM(s.presupuesto)  AS PresupuestoStockUSD,
-                               SUM(s.amortizacion) AS AmortizacionMesUSD
+                               SUM(CASE WHEN s.segmentacioncredito = 'TARJETAS DE CREDITO' THEN 0 ELSE s.amortizacion END) AS AmortizacionMesUSD
                         FROM Hub_CarteraBNB s
                                  INNER JOIN FechaActual fa ON s.fechadata = fa.FechaReferencia
                                  INNER JOIN DimAgencia d ON d.Cod_Agencia = s.Idagencia
@@ -261,7 +261,7 @@ export const queries = {
                           AND (@producto IS NULL OR s.segmentacioncredito = @producto)
                           AND (@agencia IS NULL OR d.Cod_Agencia = @agencia)),
              AcumuladoAnio AS (SELECT SUM(s.Desembolso)   AS DesembolsoAcumuladoAnioUSD,
-                                      SUM(s.amortizacion) AS AmortizacionAcumuladaAnioUSD
+                                      SUM(CASE WHEN s.segmentacioncredito = 'TARJETAS DE CREDITO' THEN 0 ELSE s.amortizacion END) AS AmortizacionAcumuladaAnioUSD
                                FROM Hub_CarteraBNB s
                                         INNER JOIN FechaActual fa
                                                    ON s.fechadata >= DATEFROMPARTS(YEAR(fa.FechaReferencia), 1, 1)
@@ -306,7 +306,7 @@ export const queries = {
                SUM(s.stock)        AS StockActualUSD,
                SUM(s.Desembolso)   AS DesembolsoUSD,
                SUM(s.presupuesto)  AS PresupuestoStockUSD,
-               SUM(s.amortizacion) AS AmortizacionUSD,
+               SUM(CASE WHEN s.segmentacioncredito = 'TARJETAS DE CREDITO' THEN 0 ELSE s.amortizacion END) AS AmortizacionUSD,
                CASE
                    WHEN SUM(s.presupuesto) IS NULL OR SUM(s.presupuesto) = 0 THEN NULL
                    ELSE (SUM(s.stock) * 1.0 / SUM(s.presupuesto)) * 100
@@ -321,203 +321,266 @@ export const queries = {
     `,
 
     kpisByProduct: `
-  WITH FechaActual AS (
-    SELECT COALESCE(CAST(@fecha AS DATE), MAX(fechadata)) AS FechaReferencia
-    FROM Hub_CarteraBNB
-    WHERE (@fecha IS NULL OR fechadata = @fecha)
-  ),
-  FechaBase AS (
-    SELECT MAX(fechadata) AS FechaReferencia
-    FROM Hub_CarteraBNB
-    WHERE fechadata <= '2025-12-31'
-  ),
-  Actual AS (
-    SELECT
-      s.segmentacioncredito AS Producto,
-      SUM(s.stock) AS StockActualUSD,
-      SUM(s.presupuesto) AS PresupuestoStockUSD,
-      SUM(s.pendiente) AS PendienteUSD
-    FROM Hub_CarteraBNB s
-    INNER JOIN FechaActual fa ON s.fechadata = fa.FechaReferencia
-    INNER JOIN DimAgencia d ON d.Cod_Agencia = s.Idagencia
-    WHERE (@sucursal IS NULL OR d.Sucursal = @sucursal)
-      AND (@producto IS NULL OR s.segmentacioncredito = @producto)
-      AND (@agencia IS NULL OR d.Cod_Agencia = @agencia)
-    GROUP BY s.segmentacioncredito
-  ),
-  AcumuladoAnio AS (
-    SELECT
-      s.segmentacioncredito AS Producto,
-      SUM(s.Desembolso) AS DesembolsoAcumuladoAnioUSD,
-      SUM(s.amortizacion) AS AmortizacionAcumuladaAnioUSD
-    FROM Hub_CarteraBNB s
-    INNER JOIN FechaActual fa
-      ON s.fechadata >= DATEFROMPARTS(YEAR(fa.FechaReferencia), 1, 1)
-     AND s.fechadata <= fa.FechaReferencia
-    INNER JOIN DimAgencia d ON d.Cod_Agencia = s.Idagencia
-    WHERE (@sucursal IS NULL OR d.Sucursal = @sucursal)
-      AND (@producto IS NULL OR s.segmentacioncredito = @producto)
-      AND (@agencia IS NULL OR d.Cod_Agencia = @agencia)
-    GROUP BY s.segmentacioncredito
-  ),
-  Base AS (
-    SELECT
-      s.segmentacioncredito AS Producto,
-      SUM(s.stock) AS StockBaseUSD
-    FROM Hub_CarteraBNB s
-    INNER JOIN FechaBase fb ON s.fechadata = fb.FechaReferencia
-    INNER JOIN DimAgencia d ON d.Cod_Agencia = s.Idagencia
-    WHERE (@sucursal IS NULL OR d.Sucursal = @sucursal)
-      AND (@producto IS NULL OR s.segmentacioncredito = @producto)
-      AND (@agencia IS NULL OR d.Cod_Agencia = @agencia)
-    GROUP BY s.segmentacioncredito
-  )
-  SELECT
-    a.Producto,
-    a.StockActualUSD,
-    b.StockBaseUSD,
-    aa.DesembolsoAcumuladoAnioUSD,
-    aa.AmortizacionAcumuladaAnioUSD,
-    a.PresupuestoStockUSD,
-    a.PendienteUSD,
-    CASE
-      WHEN b.StockBaseUSD IS NULL OR b.StockBaseUSD = 0 THEN NULL
-      ELSE ((a.StockActualUSD * 1.0 / b.StockBaseUSD) - 1) * 100
-    END AS CrecimientoPct,
-    CASE
-      WHEN a.PresupuestoStockUSD IS NULL OR a.PresupuestoStockUSD = 0 THEN NULL
-      ELSE (a.StockActualUSD * 1.0 / a.PresupuestoStockUSD) * 100
-    END AS CumplimientoStockPct
-  FROM Actual a
-  LEFT JOIN Base b ON b.Producto = a.Producto
-  LEFT JOIN AcumuladoAnio aa ON aa.Producto = a.Producto
-  ORDER BY a.StockActualUSD DESC;
-`,
+        WITH FechaActual AS (SELECT COALESCE(CAST(@fecha AS DATE), MAX(fechadata)) AS FechaReferencia
+                             FROM Hub_CarteraBNB
+                             WHERE (@fecha IS NULL OR fechadata = @fecha)),
+             FechaBase AS (SELECT MAX(fechadata) AS FechaReferencia
+                           FROM Hub_CarteraBNB
+                           WHERE fechadata <= '2025-12-31'),
+             Actual AS (SELECT s.segmentacioncredito AS Producto,
+                               SUM(s.stock)          AS StockActualUSD,
+                               SUM(s.presupuesto)    AS PresupuestoStockUSD,
+                               SUM(s.pendiente)      AS PendienteUSD
+                        FROM Hub_CarteraBNB s
+                                 INNER JOIN FechaActual fa ON s.fechadata = fa.FechaReferencia
+                                 INNER JOIN DimAgencia d ON d.Cod_Agencia = s.Idagencia
+                        WHERE (@sucursal IS NULL OR d.Sucursal = @sucursal)
+                          AND (@producto IS NULL OR s.segmentacioncredito = @producto)
+                          AND (@agencia IS NULL OR d.Cod_Agencia = @agencia)
+                        GROUP BY s.segmentacioncredito),
+             AcumuladoAnio AS (SELECT s.segmentacioncredito            AS Producto,
+                                      SUM(s.Desembolso)                AS DesembolsoAcumuladoAnioUSD,
+                                      SUM(CASE
+                                              WHEN s.segmentacioncredito = 'TARJETAS DE CREDITO' THEN 0
+                                              ELSE s.amortizacion END) AS AmortizacionAcumuladaAnioUSD
+                               FROM Hub_CarteraBNB s
+                                        INNER JOIN FechaActual fa
+                                                   ON s.fechadata >= DATEFROMPARTS(YEAR(fa.FechaReferencia), 1, 1)
+                                                       AND s.fechadata <= fa.FechaReferencia
+                                        INNER JOIN DimAgencia d ON d.Cod_Agencia = s.Idagencia
+                               WHERE (@sucursal IS NULL OR d.Sucursal = @sucursal)
+                                 AND (@producto IS NULL OR s.segmentacioncredito = @producto)
+                                 AND (@agencia IS NULL OR d.Cod_Agencia = @agencia)
+                               GROUP BY s.segmentacioncredito),
+             Base AS (SELECT s.segmentacioncredito AS Producto,
+                             SUM(s.stock)          AS StockBaseUSD
+                      FROM Hub_CarteraBNB s
+                               INNER JOIN FechaBase fb ON s.fechadata = fb.FechaReferencia
+                               INNER JOIN DimAgencia d ON d.Cod_Agencia = s.Idagencia
+                      WHERE (@sucursal IS NULL OR d.Sucursal = @sucursal)
+                        AND (@producto IS NULL OR s.segmentacioncredito = @producto)
+                        AND (@agencia IS NULL OR d.Cod_Agencia = @agencia)
+                      GROUP BY s.segmentacioncredito)
+        SELECT a.Producto,
+               a.StockActualUSD,
+               ISNULL(b.StockBaseUSD, 0)                    AS StockBaseUSD,
+               aa.DesembolsoAcumuladoAnioUSD,
+               aa.AmortizacionAcumuladaAnioUSD,
+               a.PresupuestoStockUSD,
+               a.PendienteUSD,
+               a.StockActualUSD - ISNULL(b.StockBaseUSD, 0) AS CrecimientoNominalUSD,
+               CASE
+                   WHEN b.StockBaseUSD IS NULL OR b.StockBaseUSD = 0 THEN NULL
+                   ELSE ((a.StockActualUSD * 1.0 / b.StockBaseUSD) - 1) * 100
+                   END                                      AS CrecimientoPct,
+               CASE
+                   WHEN a.PresupuestoStockUSD IS NULL OR a.PresupuestoStockUSD = 0 THEN NULL
+                   ELSE (a.StockActualUSD * 1.0 / a.PresupuestoStockUSD) * 100
+                   END                                      AS CumplimientoStockPct
+        FROM Actual a
+                 LEFT JOIN Base b ON b.Producto = a.Producto
+                 LEFT JOIN AcumuladoAnio aa ON aa.Producto = a.Producto
+        ORDER BY a.StockActualUSD DESC;
+    `,
 
     benchmark: `
-        WITH FechaActual AS (SELECT MAX(fechadata) AS FechaReferencia
-                             FROM Hub_CarteraSF
-                             WHERE (@fecha IS NULL OR fechadata = @fecha)),
-             BaseDic AS (SELECT MAX(fechadata) AS FechaReferencia
-                         FROM Hub_CarteraSF
-                         WHERE fechadata <= '2025-12-31'),
-             Actual AS (SELECT sf.banco,
-                               sf.Sucursal,
-                               sf.segmentacioncredito,
-                               SUM(sf.monto) AS MontoActualUSD
-                        FROM Hub_CarteraSF sf
-                                 INNER JOIN FechaActual fa ON sf.fechadata = fa.FechaReferencia
-                        WHERE (@banco IS NULL OR sf.banco = @banco)
-                          AND (@sucursal IS NULL OR sf.Sucursal = @sucursal)
-                          AND (@producto IS NULL OR sf.segmentacioncredito = @producto)
-                        GROUP BY sf.banco, sf.Sucursal, sf.segmentacioncredito),
-             Base AS (SELECT sf.banco,
-                             sf.Sucursal,
-                             sf.segmentacioncredito,
-                             SUM(sf.monto) AS MontoBaseUSD
-                      FROM Hub_CarteraSF sf
-                               INNER JOIN BaseDic bd ON sf.fechadata = bd.FechaReferencia
-                      WHERE (@banco IS NULL OR sf.banco = @banco)
-                        AND (@sucursal IS NULL OR sf.Sucursal = @sucursal)
-                        AND (@producto IS NULL OR sf.segmentacioncredito = @producto)
-                      GROUP BY sf.banco, sf.Sucursal, sf.segmentacioncredito)
-        SELECT a.banco,
-               a.Sucursal,
-               a.segmentacioncredito,
-               a.MontoActualUSD,
-               CASE
-                   WHEN b.MontoBaseUSD IS NULL OR b.MontoBaseUSD = 0 THEN NULL
-                   ELSE ((a.MontoActualUSD * 1.0 / b.MontoBaseUSD) - 1) * 100
-                   END AS CrecimientoPct
+        ;WITH FechaActual AS (
+            SELECT
+                COALESCE(
+                    (
+                        SELECT MAX(fechadata)
+                        FROM Hub_CarteraSF
+                        WHERE @fecha IS NOT NULL
+                          AND fechadata <= CAST(@fecha AS DATE)
+                    ),
+                    (
+                        SELECT MAX(fechadata)
+                        FROM Hub_CarteraSF
+                    )
+                ) AS FechaReferencia
+        ),
+        BaseDic AS (
+            SELECT MAX(fechadata) AS FechaReferencia
+            FROM Hub_CarteraSF
+            WHERE fechadata <= '2025-12-31'
+        ),
+        Actual AS (
+            SELECT
+                sf.banco,
+                sf.segmentacioncredito,
+                SUM(sf.monto) AS MontoActualUSD
+            FROM Hub_CarteraSF sf
+            INNER JOIN FechaActual fa
+                ON sf.fechadata = fa.FechaReferencia
+            WHERE (@banco IS NULL OR sf.banco = @banco)
+              AND (@sucursal IS NULL OR sf.Sucursal = @sucursal)
+              AND (@producto IS NULL OR sf.segmentacioncredito = @producto)
+            GROUP BY
+                sf.banco,
+                sf.segmentacioncredito
+        ),
+        Base AS (
+            SELECT
+                sf.banco,
+                sf.segmentacioncredito,
+                SUM(sf.monto) AS MontoBaseUSD
+            FROM Hub_CarteraSF sf
+            INNER JOIN BaseDic bd
+                ON sf.fechadata = bd.FechaReferencia
+            WHERE (@banco IS NULL OR sf.banco = @banco)
+              AND (@sucursal IS NULL OR sf.Sucursal = @sucursal)
+              AND (@producto IS NULL OR sf.segmentacioncredito = @producto)
+            GROUP BY
+                sf.banco,
+                sf.segmentacioncredito
+        )
+        SELECT
+            (SELECT FechaReferencia FROM FechaActual) AS FechaCorteSF,
+            a.banco,
+            a.segmentacioncredito,
+            a.MontoActualUSD,
+            ISNULL(b.MontoBaseUSD, 0) AS MontoBaseUSD,
+            a.MontoActualUSD - ISNULL(b.MontoBaseUSD, 0) AS CrecimientoTotalUSD,
+            CASE
+                WHEN b.MontoBaseUSD IS NULL OR b.MontoBaseUSD = 0 THEN NULL
+                ELSE ((a.MontoActualUSD * 1.0 / b.MontoBaseUSD) - 1) * 100
+            END AS CrecimientoPct
         FROM Actual a
-                 LEFT JOIN Base b
-                           ON b.banco = a.banco
-                               AND b.Sucursal = a.Sucursal
-                               AND b.segmentacioncredito = a.segmentacioncredito
-        ORDER BY a.banco, a.Sucursal, a.segmentacioncredito;
+        LEFT JOIN Base b
+            ON b.banco = a.banco
+           AND b.segmentacioncredito = a.segmentacioncredito
+        ORDER BY CrecimientoTotalUSD DESC;
     `,
 
     marketShare: `
-        WITH FechaActual AS (SELECT MAX(fechadata) AS FechaReferencia
-                             FROM Hub_CarteraSF
-                             WHERE (@fecha IS NULL OR fechadata = @fecha)),
-             BaseDic AS (SELECT MAX(fechadata) AS FechaReferencia
-                         FROM Hub_CarteraSF
-                         WHERE (MONTH(fechadata) = 12 AND YEAR(fechadata) = (SELECT YEAR(FechaReferencia) - 1 FROM FechaActual))
-                            OR (fechadata = (SELECT MIN(fechadata) FROM Hub_CarteraSF))),
-             Actual AS (
-                SELECT sf.segmentacioncredito,
-                       SUM(CASE WHEN sf.banco = 'BNB' THEN sf.monto ELSE 0 END) AS MontoBNBUSD,
-                       SUM(sf.monto)                                            AS MontoSistemaFinancieroUSD
-                FROM Hub_CarteraSF sf
-                         INNER JOIN FechaActual fa ON sf.fechadata = fa.FechaReferencia
-                WHERE (@sucursal IS NULL OR sf.Sucursal = @sucursal)
-                  AND (@producto IS NULL OR sf.segmentacioncredito = @producto)
-                GROUP BY sf.segmentacioncredito
-             ),
-             Base AS (
-                SELECT sf.segmentacioncredito,
-                       SUM(sf.monto) AS MontoSistemaBaseUSD
-                FROM Hub_CarteraSF sf
-                         INNER JOIN BaseDic bd ON sf.fechadata = bd.FechaReferencia
-                WHERE (@sucursal IS NULL OR sf.Sucursal = @sucursal)
-                  AND (@producto IS NULL OR sf.segmentacioncredito = @producto)
-                GROUP BY sf.segmentacioncredito
-             )
-        SELECT a.segmentacioncredito,
-               a.MontoBNBUSD,
-               a.MontoSistemaFinancieroUSD,
-               CASE
-                   WHEN a.MontoSistemaFinancieroUSD IS NULL OR a.MontoSistemaFinancieroUSD = 0 THEN NULL
-                   ELSE (a.MontoBNBUSD * 1.0 / a.MontoSistemaFinancieroUSD) * 100
-                   END AS ParticipacionBNBPct,
-               CASE
-                   WHEN b.MontoSistemaBaseUSD IS NULL OR b.MontoSistemaBaseUSD = 0 THEN NULL
-                   ELSE ((a.MontoSistemaFinancieroUSD * 1.0 / b.MontoSistemaBaseUSD) - 1) * 100
-                   END AS CrecimientoPct
+        ;WITH FechaActual AS (
+            SELECT
+                COALESCE(
+                    (
+                        SELECT MAX(fechadata)
+                        FROM Hub_CarteraSF
+                        WHERE @fecha IS NOT NULL
+                          AND fechadata <= CAST(@fecha AS DATE)
+                    ),
+                    (
+                        SELECT MAX(fechadata)
+                        FROM Hub_CarteraSF
+                    )
+                ) AS FechaReferencia
+        ),
+        BaseDic AS (
+            SELECT MAX(fechadata) AS FechaReferencia
+            FROM Hub_CarteraSF
+            WHERE fechadata <= '2025-12-31'
+        ),
+        Actual AS (
+            SELECT
+                sf.segmentacioncredito,
+                SUM(CASE WHEN sf.banco = 'BNB' THEN sf.monto ELSE 0 END) AS MontoBNBUSD,
+                SUM(sf.monto) AS MontoSistemaFinancieroUSD
+            FROM Hub_CarteraSF sf
+            INNER JOIN FechaActual fa
+                ON sf.fechadata = fa.FechaReferencia
+            WHERE (@sucursal IS NULL OR sf.Sucursal = @sucursal)
+              AND (@producto IS NULL OR sf.segmentacioncredito = @producto)
+            GROUP BY
+                sf.segmentacioncredito
+        ),
+        Base AS (
+            SELECT
+                sf.segmentacioncredito,
+                SUM(sf.monto) AS MontoSistemaBaseUSD
+            FROM Hub_CarteraSF sf
+            INNER JOIN BaseDic bd
+                ON sf.fechadata = bd.FechaReferencia
+            WHERE (@sucursal IS NULL OR sf.Sucursal = @sucursal)
+              AND (@producto IS NULL OR sf.segmentacioncredito = @producto)
+            GROUP BY
+                sf.segmentacioncredito
+        )
+        SELECT
+            (SELECT FechaReferencia FROM FechaActual) AS FechaCorteSF,
+            a.segmentacioncredito,
+            a.MontoBNBUSD,
+            a.MontoSistemaFinancieroUSD,
+            ISNULL(b.MontoSistemaBaseUSD, 0) AS MontoSistemaBaseUSD,
+            a.MontoSistemaFinancieroUSD - ISNULL(b.MontoSistemaBaseUSD, 0) AS CrecimientoTotalUSD,
+            CASE
+                WHEN a.MontoSistemaFinancieroUSD IS NULL OR a.MontoSistemaFinancieroUSD = 0 THEN NULL
+                ELSE (a.MontoBNBUSD * 1.0 / a.MontoSistemaFinancieroUSD) * 100
+            END AS ParticipacionBNBPct,
+            CASE
+                WHEN b.MontoSistemaBaseUSD IS NULL OR b.MontoSistemaBaseUSD = 0 THEN NULL
+                ELSE ((a.MontoSistemaFinancieroUSD * 1.0 / b.MontoSistemaBaseUSD) - 1) * 100
+            END AS CrecimientoPct
         FROM Actual a
-        LEFT JOIN Base b ON a.segmentacioncredito = b.segmentacioncredito
-        ORDER BY ParticipacionBNBPct DESC;
+        LEFT JOIN Base b
+            ON a.segmentacioncredito = b.segmentacioncredito
+        ORDER BY CrecimientoTotalUSD DESC;
     `,
 
     oficiales: `
-        WITH FechaActual AS (SELECT MAX(FechaData) AS FechaReferencia
-                             FROM Hub_OONN
-                             WHERE (@fecha IS NULL OR FechaData = @fecha)),
-             TotalesPorSucursal AS (
-                 SELECT d2.Sucursal,
-                        SUM(o2.MontoDesembolsoDolares) AS TotalSucursalUSD
-                 FROM Hub_OONN o2
-                          INNER JOIN DimAgencia d2 ON d2.Cod_Agencia = o2.ID_AGENCIA
-                          INNER JOIN FechaActual fa2 ON o2.FechaData = fa2.FechaReferencia
-                 GROUP BY d2.Sucursal
-             ),
+        WITH FechaActual AS (
+            SELECT COALESCE(
+                           (
+                               SELECT MAX(FechaData)
+                               FROM Hub_OONN
+                               WHERE @fecha IS NOT NULL
+                                 AND FechaData <= CAST(@fecha AS DATE)
+                           ),
+                           (
+                               SELECT MAX(FechaData)
+                               FROM Hub_OONN
+                           )
+                   ) AS FechaReferencia
+        ),
              Detalle AS (
-                 SELECT d.Sucursal,
-                        o.Oficial,
-                        d.Cod_Agencia,
-                        d.Agencia AS NombreAgencia,
-                        SUM(o.MontoDesembolsoDolares) AS DesembolsoOficialUSD
+                 SELECT
+                     d.Sucursal,
+                     o.Oficial,
+                     d.Cod_Agencia,
+                     d.Agencia AS NombreAgencia,
+                     SUM(o.MontoDesembolsoDolares) AS DesembolsoOficialUSD
                  FROM Hub_OONN o
-                          INNER JOIN DimAgencia d ON d.Cod_Agencia = o.ID_AGENCIA
-                          INNER JOIN FechaActual fa ON o.FechaData = fa.FechaReferencia
+                          INNER JOIN DimAgencia d
+                                     ON d.Cod_Agencia = o.ID_AGENCIA
+                          INNER JOIN FechaActual fa
+                                     ON o.FechaData >= DATEFROMPARTS(YEAR(fa.FechaReferencia), 1, 1)
+                                         AND o.FechaData <= fa.FechaReferencia
                  WHERE (@sucursal IS NULL OR d.Sucursal = @sucursal)
                    AND (@agencia IS NULL OR d.Cod_Agencia = @agencia)
-                 GROUP BY d.Sucursal, o.Oficial, d.Cod_Agencia, d.Agencia
+                 GROUP BY
+                     d.Sucursal,
+                     o.Oficial,
+                     d.Cod_Agencia,
+                     d.Agencia
+             ),
+             TotalAporte AS (
+                 SELECT
+                     SUM(o.MontoDesembolsoDolares) AS TotalAporteUSD
+                 FROM Hub_OONN o
+                          INNER JOIN DimAgencia d
+                                     ON d.Cod_Agencia = o.ID_AGENCIA
+                          INNER JOIN FechaActual fa
+                                     ON o.FechaData >= DATEFROMPARTS(YEAR(fa.FechaReferencia), 1, 1)
+                                         AND o.FechaData <= fa.FechaReferencia
+                 WHERE (@sucursal IS NULL OR d.Sucursal = @sucursal)
+                   AND (@agencia IS NULL OR d.Cod_Agencia = @agencia)
              )
-        SELECT Detalle.Sucursal,
-               Detalle.Oficial,
-               Detalle.Cod_Agencia,
-               Detalle.NombreAgencia,
-               Detalle.DesembolsoOficialUSD,
-               ts.TotalSucursalUSD,
-               CASE
-                   WHEN ts.TotalSucursalUSD IS NULL OR ts.TotalSucursalUSD = 0 THEN NULL
-                   ELSE (Detalle.DesembolsoOficialUSD * 100.0 / ts.TotalSucursalUSD)
-                   END AS ParticipacionSucursalPct
-        FROM Detalle
-                 INNER JOIN TotalesPorSucursal ts ON ts.Sucursal = Detalle.Sucursal
-        ORDER BY Detalle.DesembolsoOficialUSD DESC;
+        SELECT
+            d.Sucursal,
+            d.Oficial,
+            d.Cod_Agencia,
+            d.NombreAgencia,
+            d.DesembolsoOficialUSD,
+            t.TotalAporteUSD,
+            CASE
+                WHEN t.TotalAporteUSD IS NULL OR t.TotalAporteUSD = 0 THEN NULL
+                ELSE (d.DesembolsoOficialUSD * 100.0 / t.TotalAporteUSD)
+                END AS ParticipacionAportePct
+        FROM Detalle d
+                 CROSS JOIN TotalAporte t
+        ORDER BY d.DesembolsoOficialUSD DESC;
     `,
 
     status: `

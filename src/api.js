@@ -83,6 +83,6 @@ export const api = {
     fuentes: () =>
         get('/api/fuentes/status'),
 
-    agentQuery: (message) =>
-        post('/api/agent/query', {message})
+    agentQuery: (message, useMcp = false) =>
+        post('/api/agent/query', { message, useMcp })
 };
