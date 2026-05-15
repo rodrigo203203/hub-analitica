@@ -147,6 +147,691 @@ export async function query(text, inputs = {}) {
     return request.query(finalText);
 }
 
+export async function fetchProjectionFromSql(scenario = 'base', inputs = {}) {
+    const pool = await getPool();
+    if (!pool) return null;
+
+    const desembolsoScenarioColumn = projectionScenarioColumn(scenario);
+    const amortizacionScenarioColumn = projectionAmortizacionScenarioColumn(scenario);
+
+    const productos = normalizeArrayFilter(inputs.producto, 'TODOS');
+    const sucursales = normalizeArrayFilter(inputs.sucursal, 'TODAS');
+    const agencias = normalizeArrayFilter(inputs.agencia, 'TODAS');
+
+    const request = pool.request();
+
+    request.input('fecha', inputs.fecha ?? null);
+
+    let productFilterDes = '';
+    let productFilterAmo = '';
+
+    if (Array.isArray(productos) && productos.length > 0) {
+        const params = productos.map((_, i) => `@producto${i}`).join(', ');
+        productFilterDes = ` AND pd.PRODUCTO IN (${params})`;
+        productFilterAmo = ` AND pa.PRODUCTO IN (${params})`;
+
+        productos.forEach((value, i) => {
+            request.input(`producto${i}`, sql.NVarChar, value);
+        });
+    }
+
+    let agencyFilterDes = '';
+    let agencyFilterAmo = '';
+
+    if (Array.isArray(agencias) && agencias.length > 0) {
+        const params = agencias.map((_, i) => `@agencia${i}`).join(', ');
+        agencyFilterDes = ` AND pd.agencia IN (${params})`;
+        agencyFilterAmo = ` AND pa.agencia IN (${params})`;
+
+        agencias.forEach((value, i) => {
+            request.input(`agencia${i}`, sql.NVarChar, value);
+        });
+    }
+
+    let sucursalJoinDes = '';
+    let sucursalJoinAmo = '';
+    let sucursalFilterDes = '';
+    let sucursalFilterAmo = '';
+
+    if (Array.isArray(sucursales) && sucursales.length > 0) {
+        sucursalJoinDes = ` INNER JOIN DimAgencia dd ON dd.Cod_Agencia = pd.agencia `;
+        sucursalJoinAmo = ` INNER JOIN DimAgencia da ON da.Cod_Agencia = pa.agencia `;
+
+        const params = sucursales.map((_, i) => `@sucursal${i}`).join(', ');
+        sucursalFilterDes = ` AND dd.Sucursal IN (${params})`;
+        sucursalFilterAmo = ` AND da.Sucursal IN (${params})`;
+
+        sucursales.forEach((value, i) => {
+            request.input(`sucursal${i}`, sql.NVarChar, value);
+        });
+    }
+
+    const result = await request.query(`
+        ;WITH Desembolsos AS (
+            SELECT
+                pd.Fecha,
+                pd.PRODUCTO,
+                pd.TIPO_DATO,
+                SUM(
+                    CASE
+                        WHEN pd.TIPO_DATO = 'HISTORICO' THEN ISNULL(pd.Desembolso, 0)
+                        WHEN pd.TIPO_DATO = 'PROYECCION' THEN ISNULL(pd.${desembolsoScenarioColumn}, 0)
+                        ELSE 0
+                    END
+                ) AS DesembolsoUSD
+            FROM Hub_ProyeccionDesembolso pd
+            ${sucursalJoinDes}
+            WHERE 1 = 1
+              AND (@fecha IS NULL OR pd.Fecha >= DATEFROMPARTS(YEAR(CAST(@fecha AS DATE)), 1, 1))
+              ${productFilterDes}
+              ${agencyFilterDes}
+              ${sucursalFilterDes}
+            GROUP BY
+                pd.Fecha,
+                pd.PRODUCTO,
+                pd.TIPO_DATO
+        ),
+        Amortizaciones AS (
+            SELECT
+                pa.Fecha,
+                pa.PRODUCTO,
+                pa.TIPO_DATO,
+                SUM(
+                    CASE
+                        WHEN pa.TIPO_DATO = 'HISTORICO' THEN ISNULL(pa.amortizacion, 0)
+                        WHEN pa.TIPO_DATO = 'PROYECCION' THEN ISNULL(pa.${amortizacionScenarioColumn}, 0)
+                        ELSE 0
+                    END
+                ) AS AmortizacionUSD
+            FROM Hub_ProyeccionAmortizacion pa
+            ${sucursalJoinAmo}
+            WHERE 1 = 1
+              AND (@fecha IS NULL OR pa.Fecha >= DATEFROMPARTS(YEAR(CAST(@fecha AS DATE)), 1, 1))
+              ${productFilterAmo}
+              ${agencyFilterAmo}
+              ${sucursalFilterAmo}
+            GROUP BY
+                pa.Fecha,
+                pa.PRODUCTO,
+                pa.TIPO_DATO
+        )
+        SELECT
+            COALESCE(d.Fecha, a.Fecha) AS Fecha,
+            COALESCE(d.PRODUCTO, a.PRODUCTO) AS Producto,
+            COALESCE(d.TIPO_DATO, a.TIPO_DATO) AS TipoDato,
+            SUM(ISNULL(d.DesembolsoUSD, 0)) AS DesembolsoUSD,
+            SUM(ISNULL(a.AmortizacionUSD, 0)) AS AmortizacionUSD
+        FROM Desembolsos d
+        FULL OUTER JOIN Amortizaciones a
+            ON a.Fecha = d.Fecha
+           AND a.PRODUCTO = d.PRODUCTO
+           AND a.TIPO_DATO = d.TIPO_DATO
+        GROUP BY
+            COALESCE(d.Fecha, a.Fecha),
+            COALESCE(d.PRODUCTO, a.PRODUCTO),
+            COALESCE(d.TIPO_DATO, a.TIPO_DATO)
+        ORDER BY
+            Fecha ASC,
+            Producto ASC;
+    `);
+
+    return result;
+}
+
+export async function fetchProjectionByProductFromSql(scenario = 'base', product, inputs = {}) {
+    const response = await fetchProjectionFromSql(scenario, {
+        ...inputs,
+        producto: product ? [product] : inputs.producto
+    });
+
+    return response;
+}
+
+export async function fetchPdRiskHistoryFromSql(inputs = {}) {
+    const pool = await getPool();
+    if (!pool) return null;
+
+    const productos = normalizeArrayFilter(inputs.producto, 'TODOS');
+    const sucursales = normalizeArrayFilter(inputs.sucursal, 'TODAS');
+    const agencias = normalizeArrayFilter(inputs.agencia, 'TODAS');
+
+    const request = pool.request();
+
+    let productFilter = '';
+    if (Array.isArray(productos) && productos.length > 0) {
+        const params = productos.map((_, i) => `@producto${i}`).join(', ');
+        productFilter = ` AND pd.SegmentacionCredito IN (${params})`;
+
+        productos.forEach((value, i) => {
+            request.input(`producto${i}`, sql.NVarChar, value);
+        });
+    }
+
+    let sucursalFilter = '';
+    if (Array.isArray(sucursales) && sucursales.length > 0) {
+        const params = sucursales.map((_, i) => `@sucursal${i}`).join(', ');
+        sucursalFilter = ` AND d.Sucursal IN (${params})`;
+
+        sucursales.forEach((value, i) => {
+            request.input(`sucursal${i}`, sql.NVarChar, value);
+        });
+    }
+
+    let agenciaFilter = '';
+    if (Array.isArray(agencias) && agencias.length > 0) {
+        const params = agencias.map((_, i) => `@agencia${i}`).join(', ');
+
+        agenciaFilter = ` AND TRY_CAST(pd.agencia AS INT) IN (${params})`;
+
+        agencias.forEach((value, i) => {
+            request.input(`agencia${i}`, sql.Int, Number(value));
+        });
+    }
+
+    const result = await request.query(`
+        SELECT CAST(pd.fecha AS DATE)      AS Fecha,
+               pd.SegmentacionCredito      AS Producto,
+               TRY_CAST(pd.agencia AS INT) AS Cod_Agencia,
+               d.Agencia                   AS NombreAgencia,
+               d.Sucursal,
+               SUM(ISNULL(pd.Alta, 0))     AS Alto,
+               SUM(ISNULL(pd.Media, 0))    AS Media,
+               SUM(ISNULL(pd.Baja, 0))     AS Baja
+        FROM Hub_PD pd
+                 LEFT JOIN DimAgencia d
+                           ON d.Cod_Agencia = TRY_CAST(pd.agencia AS INT)
+        WHERE 1 = 1
+            ${productFilter} ${sucursalFilter} ${agenciaFilter}
+        GROUP BY
+            CAST (pd.fecha AS DATE),
+            pd.SegmentacionCredito,
+            TRY_CAST(pd.agencia AS INT),
+            d.Agencia,
+            d.Sucursal
+        ORDER BY
+            CAST (pd.fecha AS DATE) ASC,
+            pd.SegmentacionCredito ASC;
+    `);
+
+    return result;
+}
+
+export async function fetchPdRiskFromSql(inputs = {}) {
+    const pool = await getPool();
+    if (!pool) return null;
+
+    const productos = normalizeArrayFilter(inputs.producto, 'TODOS');
+    const sucursales = normalizeArrayFilter(inputs.sucursal, 'TODAS');
+    const agencias = normalizeArrayFilter(inputs.agencia, 'TODAS');
+
+    const request = pool.request();
+
+    request.input('fecha', inputs.fecha ?? null);
+
+    let productFilter = '';
+    if (Array.isArray(productos) && productos.length > 0) {
+        const params = productos.map((_, i) => `@producto${i}`).join(', ');
+        productFilter = ` AND pd.SegmentacionCredito IN (${params})`;
+
+        productos.forEach((value, i) => {
+            request.input(`producto${i}`, sql.NVarChar, value);
+        });
+    }
+
+    let sucursalFilter = '';
+    if (Array.isArray(sucursales) && sucursales.length > 0) {
+        const params = sucursales.map((_, i) => `@sucursal${i}`).join(', ');
+        sucursalFilter = ` AND d.Sucursal IN (${params})`;
+
+        sucursales.forEach((value, i) => {
+            request.input(`sucursal${i}`, sql.NVarChar, value);
+        });
+    }
+
+    let agenciaFilter = '';
+    if (Array.isArray(agencias) && agencias.length > 0) {
+        const params = agencias.map((_, i) => `@agencia${i}`).join(', ');
+        agenciaFilter = ` AND TRY_CAST(pd.agencia AS INT) IN (${params})`;
+
+        agencias.forEach((value, i) => {
+            request.input(`agencia${i}`, sql.Int, Number(value));
+        });
+    }
+
+    const result = await request.query(`
+        ;WITH FechaActual AS (
+            SELECT
+                COALESCE(
+                    CAST(@fecha AS DATE),
+                    (SELECT MAX(CAST(fecha AS DATE)) FROM Hub_PD)
+                ) AS FechaReferencia
+        ),
+        Base AS (
+            SELECT
+                CAST(pd.fecha AS DATE) AS Fecha,
+                pd.SegmentacionCredito AS Producto,
+                TRY_CAST(pd.agencia AS INT) AS Cod_Agencia,
+                d.Agencia AS NombreAgencia,
+                d.Sucursal,
+                SUM(ISNULL(pd.Alta, 0)) AS Alto,
+                SUM(ISNULL(pd.Media, 0)) AS Media,
+                SUM(ISNULL(pd.Baja, 0)) AS Baja
+            FROM Hub_PD pd
+            INNER JOIN FechaActual fa
+                ON CAST(pd.fecha AS DATE) = fa.FechaReferencia
+            LEFT JOIN DimAgencia d
+                ON d.Cod_Agencia = TRY_CAST(pd.agencia AS INT)
+            WHERE 1 = 1
+              ${productFilter}
+              ${sucursalFilter}
+              ${agenciaFilter}
+            GROUP BY
+                CAST(pd.fecha AS DATE),
+                pd.SegmentacionCredito,
+                TRY_CAST(pd.agencia AS INT),
+                d.Agencia,
+                d.Sucursal
+        )
+        SELECT
+            Fecha,
+            Producto,
+            Cod_Agencia,
+            NombreAgencia,
+            Sucursal,
+            Alto,
+            Media,
+            Baja,
+            Alto + Media + Baja AS TotalOperaciones,
+            CASE
+                WHEN Alto + Media + Baja = 0 THEN NULL
+                ELSE Alto * 100.0 / (Alto + Media + Baja)
+            END AS AltoPct,
+            CASE
+                WHEN Alto + Media + Baja = 0 THEN NULL
+                ELSE Media * 100.0 / (Alto + Media + Baja)
+            END AS MediaPct,
+            CASE
+                WHEN Alto + Media + Baja = 0 THEN NULL
+                ELSE Baja * 100.0 / (Alto + Media + Baja)
+            END AS BajaPct
+        FROM Base
+        ORDER BY
+            Alto DESC,
+            Media DESC,
+            TotalOperaciones DESC;
+    `);
+
+    return result;
+}
+
+export async function fetchSharedPortfolioFromSql(inputs = {}) {
+    const pool = await getPool();
+    if (!pool) return null;
+
+    const productos = normalizeArrayFilter(inputs.producto, 'TODOS');
+    const sucursales = normalizeArrayFilter(inputs.sucursal, 'TODAS');
+    const agencias = normalizeArrayFilter(inputs.agencia, 'TODAS');
+
+    const request = pool.request();
+
+    request.input('fecha', inputs.fecha ?? null);
+
+    let productFilter = '';
+    if (Array.isArray(productos) && productos.length > 0) {
+        const params = productos.map((_, i) => `@producto${i}`).join(', ');
+        productFilter = ` AND c.SEGMENTO IN (${params})`;
+
+        productos.forEach((value, i) => {
+            request.input(`producto${i}`, sql.NVarChar, value);
+        });
+    }
+
+    let sucursalFilter = '';
+    if (Array.isArray(sucursales) && sucursales.length > 0) {
+        const params = sucursales.map((_, i) => `@sucursal${i}`).join(', ');
+        sucursalFilter = ` AND d.Sucursal IN (${params})`;
+
+        sucursales.forEach((value, i) => {
+            request.input(`sucursal${i}`, sql.NVarChar, value);
+        });
+    }
+
+    let agenciaFilter = '';
+    if (Array.isArray(agencias) && agencias.length > 0) {
+        const params = agencias.map((_, i) => `@agencia${i}`).join(', ');
+        agenciaFilter = ` AND TRY_CAST(c.AGENCIA AS INT) IN (${params})`;
+
+        agencias.forEach((value, i) => {
+            request.input(`agencia${i}`, sql.Int, Number(value));
+        });
+    }
+
+    const result = await request.query(`
+        ;WITH FechaActual AS (
+    SELECT
+        COALESCE(
+            (
+                SELECT MAX(CAST(FECHA AS DATE))
+                FROM Hub_CarteraSF_COMPARTIDA
+                WHERE @fecha IS NOT NULL
+                  AND CAST(FECHA AS DATE) <= CAST(@fecha AS DATE)
+            ),
+            (
+                SELECT MAX(CAST(FECHA AS DATE))
+                FROM Hub_CarteraSF_COMPARTIDA
+            )
+        ) AS FechaReferencia
+),
+        Base AS (
+            SELECT
+                CAST(c.FECHA AS DATE) AS Fecha,
+                c.SEGMENTO AS Segmento,
+                TRY_CAST(c.AGENCIA AS INT) AS Cod_Agencia,
+                d.Agencia AS NombreAgencia,
+                d.Sucursal,
+                SUM(ISNULL(c.[Cli q], 0)) AS ClientesCompartidos,
+
+                SUM(ISNULL(c.BNB, 0)) AS BNB,
+                SUM(ISNULL(c.BIS, 0)) AS BIS,
+                SUM(ISNULL(c.BCR, 0)) AS BCR,
+                SUM(ISNULL(c.BEC, 0)) AS BEC,
+                SUM(ISNULL(c.BIE, 0)) AS BIE,
+                SUM(ISNULL(c.BGA, 0)) AS BGA,
+                SUM(ISNULL(c.BME, 0)) AS BME,
+                SUM(ISNULL(c.BSO, 0)) AS BSO,
+                SUM(ISNULL(c.OTRO, 0)) AS OTRO
+            FROM Hub_CarteraSF_COMPARTIDA c
+            INNER JOIN FechaActual fa
+                ON CAST(c.FECHA AS DATE) = fa.FechaReferencia
+            LEFT JOIN DimAgencia d
+                ON d.Cod_Agencia = TRY_CAST(c.AGENCIA AS INT)
+            WHERE 1 = 1
+              ${productFilter}
+              ${sucursalFilter}
+              ${agenciaFilter}
+            GROUP BY
+                CAST(c.FECHA AS DATE),
+                c.SEGMENTO,
+                TRY_CAST(c.AGENCIA AS INT),
+                d.Agencia,
+                d.Sucursal
+        )
+        SELECT
+            Fecha,
+            Segmento,
+            Cod_Agencia,
+            NombreAgencia,
+            Sucursal,
+            ClientesCompartidos,
+
+            BNB,
+            BIS,
+            BCR,
+            BEC,
+            BIE,
+            BGA,
+            BME,
+            BSO,
+            OTRO,
+
+            BIS + BCR + BEC + BIE + BGA + BME + BSO + OTRO AS OtrosBancos,
+            BNB + BIS + BCR + BEC + BIE + BGA + BME + BSO + OTRO AS TotalCompartido,
+
+            CASE
+                WHEN BNB + BIS + BCR + BEC + BIE + BGA + BME + BSO + OTRO = 0 THEN NULL
+                ELSE BNB * 100.0 / (BNB + BIS + BCR + BEC + BIE + BGA + BME + BSO + OTRO)
+            END AS ParticipacionBNBPct,
+
+            CASE
+                WHEN BNB + BIS + BCR + BEC + BIE + BGA + BME + BSO + OTRO = 0 THEN NULL
+                ELSE (BIS + BCR + BEC + BIE + BGA + BME + BSO + OTRO) * 100.0 /
+                     (BNB + BIS + BCR + BEC + BIE + BGA + BME + BSO + OTRO)
+            END AS ParticipacionOtrosPct
+        FROM Base
+        ORDER BY
+            OtrosBancos DESC,
+            ClientesCompartidos DESC;
+    `);
+
+    return result;
+}
+
+export async function fetchCaptacionesFromSql(inputs = {}) {
+    const pool = await getPool();
+    if (!pool) return null;
+
+    const sucursales = normalizeArrayFilter(inputs.sucursal, 'TODAS');
+    const agencias = normalizeArrayFilter(inputs.agencia, 'TODAS');
+
+    const request = pool.request();
+    request.input('fecha', inputs.fecha ?? null);
+
+    let sucursalFilter = '';
+    if (Array.isArray(sucursales) && sucursales.length > 0) {
+        const params = sucursales.map((_, i) => `@sucursal${i}`).join(', ');
+        sucursalFilter = ` AND d.Sucursal IN (${params})`;
+
+        sucursales.forEach((value, i) => {
+            request.input(`sucursal${i}`, sql.NVarChar, value);
+        });
+    }
+
+    let agenciaFilter = '';
+    if (Array.isArray(agencias) && agencias.length > 0) {
+        const params = agencias.map((_, i) => `@agencia${i}`).join(', ');
+        agenciaFilter = ` AND c.Codigo IN (${params})`;
+
+        agencias.forEach((value, i) => {
+            request.input(`agencia${i}`, sql.Int, Number(value));
+        });
+    }
+
+    const result = await request.query(`
+        ;WITH FechaActual AS (
+            SELECT
+                COALESCE(
+                    (
+                        SELECT MAX(CAST(Fecha AS DATE))
+                        FROM Hub_Captaciones
+                        WHERE @fecha IS NOT NULL
+                          AND CAST(Fecha AS DATE) <= CAST(@fecha AS DATE)
+                    ),
+                    (
+                        SELECT MAX(CAST(Fecha AS DATE))
+                        FROM Hub_Captaciones
+                    )
+                ) AS FechaReferencia
+        ),
+        Base AS (
+            SELECT
+                CAST(c.Fecha AS DATE) AS Fecha,
+                c.Codigo AS Cod_Agencia,
+                d.Agencia AS NombreAgencia,
+                d.Sucursal,
+
+                SUM(ISNULL(c.Ejecutada_Captaciones, 0)) AS EjecutadaCaptaciones,
+                SUM(ISNULL(c.Presupuestada_Captaciones, 0)) AS PresupuestadaCaptaciones,
+
+                SUM(ISNULL(c.Ejecutada_Vista, 0)) AS EjecutadaVista,
+                SUM(ISNULL(c.Presupuestada_Vista, 0)) AS PresupuestadaVista,
+
+                SUM(ISNULL(c.Ejecutada_Ahorros, 0)) AS EjecutadaAhorros,
+                SUM(ISNULL(c.Presupuestada_Ahorros, 0)) AS PresupuestadaAhorros,
+
+                SUM(ISNULL(c.Ejecutada_Plazo, 0)) AS EjecutadaPlazo,
+                SUM(ISNULL(c.Presupuestada_Plazo, 0)) AS PresupuestadaPlazo,
+
+                SUM(ISNULL(c.Tendencia_Captaciones, 0)) AS TendenciaCaptaciones,
+                MAX(c.Categoria_Tendencia) AS CategoriaTendencia
+            FROM Hub_Captaciones c
+            INNER JOIN FechaActual fa
+                ON CAST(c.Fecha AS DATE) = fa.FechaReferencia
+            LEFT JOIN DimAgencia d
+                ON d.Cod_Agencia = c.Codigo
+            WHERE 1 = 1
+              ${sucursalFilter}
+              ${agenciaFilter}
+            GROUP BY
+                CAST(c.Fecha AS DATE),
+                c.Codigo,
+                d.Agencia,
+                d.Sucursal
+        )
+        SELECT
+            Fecha,
+            Cod_Agencia,
+            NombreAgencia,
+            Sucursal,
+
+            EjecutadaCaptaciones,
+            PresupuestadaCaptaciones,
+            EjecutadaCaptaciones - PresupuestadaCaptaciones AS BrechaCaptaciones,
+
+            EjecutadaVista,
+            PresupuestadaVista,
+            EjecutadaVista - PresupuestadaVista AS BrechaVista,
+
+            EjecutadaAhorros,
+            PresupuestadaAhorros,
+            EjecutadaAhorros - PresupuestadaAhorros AS BrechaAhorros,
+
+            EjecutadaPlazo,
+            PresupuestadaPlazo,
+            EjecutadaPlazo - PresupuestadaPlazo AS BrechaPlazo,
+
+            TendenciaCaptaciones,
+            CategoriaTendencia,
+
+            CASE
+                WHEN PresupuestadaCaptaciones = 0 THEN NULL
+                ELSE EjecutadaCaptaciones * 100.0 / PresupuestadaCaptaciones
+            END AS CumplimientoCaptacionesPct,
+
+            CASE
+                WHEN PresupuestadaVista = 0 THEN NULL
+                ELSE EjecutadaVista * 100.0 / PresupuestadaVista
+            END AS CumplimientoVistaPct,
+
+            CASE
+                WHEN PresupuestadaAhorros = 0 THEN NULL
+                ELSE EjecutadaAhorros * 100.0 / PresupuestadaAhorros
+            END AS CumplimientoAhorrosPct,
+
+            CASE
+                WHEN PresupuestadaPlazo = 0 THEN NULL
+                ELSE EjecutadaPlazo * 100.0 / PresupuestadaPlazo
+            END AS CumplimientoPlazoPct
+        FROM Base
+        ORDER BY EjecutadaCaptaciones DESC;
+    `);
+
+    return result;
+}
+
+export async function fetchCaptacionesHistoryFromSql(inputs = {}) {
+    const pool = await getPool();
+    if (!pool) return null;
+
+    const sucursales = normalizeArrayFilter(inputs.sucursal, 'TODAS');
+    const agencias = normalizeArrayFilter(inputs.agencia, 'TODAS');
+
+    const request = pool.request();
+
+    let sucursalFilter = '';
+    if (Array.isArray(sucursales) && sucursales.length > 0) {
+        const params = sucursales.map((_, i) => `@sucursal${i}`).join(', ');
+        sucursalFilter = ` AND d.Sucursal IN (${params})`;
+
+        sucursales.forEach((value, i) => {
+            request.input(`sucursal${i}`, sql.NVarChar, value);
+        });
+    }
+
+    let agenciaFilter = '';
+    if (Array.isArray(agencias) && agencias.length > 0) {
+        const params = agencias.map((_, i) => `@agencia${i}`).join(', ');
+        agenciaFilter = ` AND c.Codigo IN (${params})`;
+
+        agencias.forEach((value, i) => {
+            request.input(`agencia${i}`, sql.Int, Number(value));
+        });
+    }
+
+    const result = await request.query(`
+        ;WITH Base AS (
+            SELECT
+                CAST(c.Fecha AS DATE) AS Fecha,
+
+                SUM(ISNULL(c.Ejecutada_Captaciones, 0)) AS EjecutadaCaptaciones,
+                SUM(ISNULL(c.Presupuestada_Captaciones, 0)) AS PresupuestadaCaptaciones,
+
+                SUM(ISNULL(c.Ejecutada_Vista, 0)) AS EjecutadaVista,
+                SUM(ISNULL(c.Presupuestada_Vista, 0)) AS PresupuestadaVista,
+
+                SUM(ISNULL(c.Ejecutada_Ahorros, 0)) AS EjecutadaAhorros,
+                SUM(ISNULL(c.Presupuestada_Ahorros, 0)) AS PresupuestadaAhorros,
+
+                SUM(ISNULL(c.Ejecutada_Plazo, 0)) AS EjecutadaPlazo,
+                SUM(ISNULL(c.Presupuestada_Plazo, 0)) AS PresupuestadaPlazo,
+
+                SUM(ISNULL(c.Tendencia_Captaciones, 0)) AS TendenciaCaptaciones
+            FROM Hub_Captaciones c
+            LEFT JOIN DimAgencia d
+                ON d.Cod_Agencia = c.Codigo
+            WHERE 1 = 1
+              ${sucursalFilter}
+              ${agenciaFilter}
+            GROUP BY
+                CAST(c.Fecha AS DATE)
+        )
+        SELECT
+            Fecha,
+
+            EjecutadaCaptaciones,
+            PresupuestadaCaptaciones,
+            EjecutadaCaptaciones - PresupuestadaCaptaciones AS BrechaCaptaciones,
+
+            EjecutadaVista,
+            PresupuestadaVista,
+            EjecutadaVista - PresupuestadaVista AS BrechaVista,
+
+            EjecutadaAhorros,
+            PresupuestadaAhorros,
+            EjecutadaAhorros - PresupuestadaAhorros AS BrechaAhorros,
+
+            EjecutadaPlazo,
+            PresupuestadaPlazo,
+            EjecutadaPlazo - PresupuestadaPlazo AS BrechaPlazo,
+
+            TendenciaCaptaciones,
+
+            CASE
+                WHEN PresupuestadaCaptaciones = 0 THEN NULL
+                ELSE EjecutadaCaptaciones * 100.0 / PresupuestadaCaptaciones
+            END AS CumplimientoCaptacionesPct,
+
+            CASE
+                WHEN PresupuestadaVista = 0 THEN NULL
+                ELSE EjecutadaVista * 100.0 / PresupuestadaVista
+            END AS CumplimientoVistaPct,
+
+            CASE
+                WHEN PresupuestadaAhorros = 0 THEN NULL
+                ELSE EjecutadaAhorros * 100.0 / PresupuestadaAhorros
+            END AS CumplimientoAhorrosPct,
+
+            CASE
+                WHEN PresupuestadaPlazo = 0 THEN NULL
+                ELSE EjecutadaPlazo * 100.0 / PresupuestadaPlazo
+            END AS CumplimientoPlazoPct
+        FROM Base
+        ORDER BY Fecha ASC;
+    `);
+
+    return result;
+}
+
+
 /**
  * Catálogos para filtros cuando hay conexión SQL.
  * Fechas como texto yyyy-MM-dd; agencias: Cod_Agencia + columna Agencia (nombre).
@@ -166,7 +851,7 @@ export async function fetchCatalogsFromSql() {
             agRes
         ] = await Promise.all([
             pool.request().query(`
-                SELECT DISTINCT FORMAT(CAST(fechadata AS DATE), 'yyyy-MM-dd') AS d
+                SELECT DISTINCT FORMAT(CAST(fecha AS DATE), 'yyyy-MM-dd') AS d
                 FROM Hub_CarteraBNB
                 ORDER BY d DESC
             `),
@@ -178,35 +863,38 @@ export async function fetchCatalogsFromSql() {
             pool.request().query(`
                 SELECT DISTINCT Sucursal AS s
                 FROM DimAgencia
-                WHERE Sucursal IS NOT NULL AND LTRIM(RTRIM(Sucursal)) <> ''
+                WHERE Sucursal IS NOT NULL
+                  AND LTRIM(RTRIM(Sucursal)) <> ''
                 ORDER BY s
             `),
             pool.request().query(`
                 SELECT DISTINCT segmentacioncredito AS p
                 FROM Hub_CarteraBNB
-                WHERE segmentacioncredito IS NOT NULL AND LTRIM(RTRIM(segmentacioncredito)) <> ''
+                WHERE segmentacioncredito IS NOT NULL
+                  AND LTRIM(RTRIM(segmentacioncredito)) <> ''
                 ORDER BY p
             `),
             pool.request().query(`
                 SELECT DISTINCT segmentacioncredito AS p
                 FROM Hub_CarteraSF
-                WHERE segmentacioncredito IS NOT NULL AND LTRIM(RTRIM(segmentacioncredito)) <> ''
+                WHERE segmentacioncredito IS NOT NULL
+                  AND LTRIM(RTRIM(segmentacioncredito)) <> ''
                 ORDER BY p
             `),
             pool.request().query(`
                 SELECT DISTINCT banco AS b
                 FROM Hub_CarteraSF
-                WHERE banco IS NOT NULL AND LTRIM(RTRIM(banco)) <> ''
+                WHERE banco IS NOT NULL
+                  AND LTRIM(RTRIM(banco)) <> ''
                 ORDER BY b
             `),
             pool.request().query(`
-                SELECT DISTINCT
-                    Cod_Agencia AS cod,
-                    (
-                        CAST(Cod_Agencia AS NVARCHAR(50)) + N' · ' +
-                        LTRIM(RTRIM(ISNULL(Agencia, N'')))
-                    ) AS label,
-                    Sucursal AS sucursal
+                SELECT DISTINCT Cod_Agencia AS cod,
+                                (
+                                    CAST(Cod_Agencia AS NVARCHAR(50)) + N' · ' +
+                                    LTRIM(RTRIM(ISNULL(Agencia, N'')))
+                                    )       AS label,
+                                Sucursal    AS sucursal
                 FROM DimAgencia
                 ORDER BY label
             `)
@@ -241,38 +929,60 @@ export async function fetchCatalogsFromSql() {
     }
 }
 
+function projectionScenarioColumn(scenario = 'base') {
+    const clean = String(scenario || 'base').toLowerCase();
+
+    if (clean === 'optimista') return 'OPTIMISTA';
+    if (clean === 'conservador' || clean === 'pesimista') return 'PESIMISTA';
+
+    return 'NORMAL';
+}
+
+function projectionAmortizacionScenarioColumn(scenario = 'base') {
+    const clean = String(scenario || 'base').toLowerCase();
+
+    if (clean === 'optimista') return 'PESIMISTA';
+    if (clean === 'conservador' || clean === 'pesimista') return 'OPTIMISTA';
+
+    return 'NORMAL';
+}
+
 export const queries = {
     summary: `
-        WITH FechaActual AS (SELECT COALESCE(CAST(@fecha AS DATE), MAX(fechadata)) AS FechaReferencia
+        WITH FechaActual AS (SELECT COALESCE(CAST(@fecha AS DATE), MAX(fecha)) AS FechaReferencia
                              FROM Hub_CarteraBNB
-                             WHERE (@fecha IS NULL OR fechadata = @fecha)),
-             FechaBase AS (SELECT MAX(fechadata) AS FechaReferencia
+                             WHERE (@fecha IS NULL OR fecha = @fecha)),
+             FechaBase AS (SELECT MAX(fecha) AS FechaReferencia
                            FROM Hub_CarteraBNB
-                           WHERE fechadata <= '2025-12-31'),
-             Actual AS (SELECT SUM(s.stock)        AS StockActualUSD,
-                               SUM(s.Desembolso)   AS DesembolsoMesUSD,
-                               SUM(s.pendiente)    AS PendienteUSD,
-                               SUM(s.presupuesto)  AS PresupuestoStockUSD,
-                               SUM(CASE WHEN s.segmentacioncredito = 'TARJETAS DE CREDITO' THEN 0 ELSE s.amortizacion END) AS AmortizacionMesUSD
+                           WHERE fecha <= '2025-12-31'),
+             Actual AS (SELECT SUM(s.stock)                     AS StockActualUSD,
+                               SUM(s.Desembolso)                AS DesembolsoMesUSD,
+                               SUM(s.pendiente)                 AS PendienteUSD,
+                               SUM(s.presupuesto)               AS PresupuestoStockUSD,
+                               SUM(CASE
+                                       WHEN s.segmentacioncredito = 'TARJETAS DE CREDITO' THEN 0
+                                       ELSE s.amortizacion END) AS AmortizacionMesUSD
                         FROM Hub_CarteraBNB s
-                                 INNER JOIN FechaActual fa ON s.fechadata = fa.FechaReferencia
+                                 INNER JOIN FechaActual fa ON s.fecha = fa.FechaReferencia
                                  INNER JOIN DimAgencia d ON d.Cod_Agencia = s.Idagencia
                         WHERE (@sucursal IS NULL OR d.Sucursal = @sucursal)
                           AND (@producto IS NULL OR s.segmentacioncredito = @producto)
                           AND (@agencia IS NULL OR d.Cod_Agencia = @agencia)),
-             AcumuladoAnio AS (SELECT SUM(s.Desembolso)   AS DesembolsoAcumuladoAnioUSD,
-                                      SUM(CASE WHEN s.segmentacioncredito = 'TARJETAS DE CREDITO' THEN 0 ELSE s.amortizacion END) AS AmortizacionAcumuladaAnioUSD
+             AcumuladoAnio AS (SELECT SUM(s.Desembolso)                AS DesembolsoAcumuladoAnioUSD,
+                                      SUM(CASE
+                                              WHEN s.segmentacioncredito = 'TARJETAS DE CREDITO' THEN 0
+                                              ELSE s.amortizacion END) AS AmortizacionAcumuladaAnioUSD
                                FROM Hub_CarteraBNB s
                                         INNER JOIN FechaActual fa
-                                                   ON s.fechadata >= DATEFROMPARTS(YEAR(fa.FechaReferencia), 1, 1)
-                                                       AND s.fechadata <= fa.FechaReferencia
+                                                   ON s.fecha >= DATEFROMPARTS(YEAR(fa.FechaReferencia), 1, 1)
+                                                       AND s.fecha <= fa.FechaReferencia
                                         INNER JOIN DimAgencia d ON d.Cod_Agencia = s.Idagencia
                                WHERE (@sucursal IS NULL OR d.Sucursal = @sucursal)
                                  AND (@producto IS NULL OR s.segmentacioncredito = @producto)
                                  AND (@agencia IS NULL OR d.Cod_Agencia = @agencia)),
              Base AS (SELECT SUM(s.stock) AS StockBaseUSD
                       FROM Hub_CarteraBNB s
-                               INNER JOIN FechaBase fb ON s.fechadata = fb.FechaReferencia
+                               INNER JOIN FechaBase fb ON s.fecha = fb.FechaReferencia
                                INNER JOIN DimAgencia d ON d.Cod_Agencia = s.Idagencia
                       WHERE (@sucursal IS NULL OR d.Sucursal = @sucursal)
                         AND (@producto IS NULL OR s.segmentacioncredito = @producto)
@@ -302,37 +1012,39 @@ export const queries = {
     `,
 
     timeseries: `
-        SELECT s.fechadata,
-               SUM(s.stock)        AS StockActualUSD,
-               SUM(s.Desembolso)   AS DesembolsoUSD,
-               SUM(s.presupuesto)  AS PresupuestoStockUSD,
-               SUM(CASE WHEN s.segmentacioncredito = 'TARJETAS DE CREDITO' THEN 0 ELSE s.amortizacion END) AS AmortizacionUSD,
+        SELECT s.fecha,
+               SUM(s.stock)                     AS StockActualUSD,
+               SUM(s.Desembolso)                AS DesembolsoUSD,
+               SUM(s.presupuesto)               AS PresupuestoStockUSD,
+               SUM(CASE
+                       WHEN s.segmentacioncredito = 'TARJETAS DE CREDITO' THEN 0
+                       ELSE s.amortizacion END) AS AmortizacionUSD,
                CASE
                    WHEN SUM(s.presupuesto) IS NULL OR SUM(s.presupuesto) = 0 THEN NULL
                    ELSE (SUM(s.stock) * 1.0 / SUM(s.presupuesto)) * 100
-                   END             AS CumplimientoStockPct
+                   END                          AS CumplimientoStockPct
         FROM Hub_CarteraBNB s
                  INNER JOIN DimAgencia d ON d.Cod_Agencia = s.Idagencia
         WHERE (@sucursal IS NULL OR d.Sucursal = @sucursal)
           AND (@producto IS NULL OR s.segmentacioncredito = @producto)
           AND (@agencia IS NULL OR d.Cod_Agencia = @agencia)
-        GROUP BY s.fechadata
-        ORDER BY s.fechadata ASC;
+        GROUP BY s.fecha
+        ORDER BY s.fecha ASC;
     `,
 
     kpisByProduct: `
-        WITH FechaActual AS (SELECT COALESCE(CAST(@fecha AS DATE), MAX(fechadata)) AS FechaReferencia
+        WITH FechaActual AS (SELECT COALESCE(CAST(@fecha AS DATE), MAX(fecha)) AS FechaReferencia
                              FROM Hub_CarteraBNB
-                             WHERE (@fecha IS NULL OR fechadata = @fecha)),
-             FechaBase AS (SELECT MAX(fechadata) AS FechaReferencia
+                             WHERE (@fecha IS NULL OR fecha = @fecha)),
+             FechaBase AS (SELECT MAX(fecha) AS FechaReferencia
                            FROM Hub_CarteraBNB
-                           WHERE fechadata <= '2025-12-31'),
+                           WHERE fecha <= '2025-12-31'),
              Actual AS (SELECT s.segmentacioncredito AS Producto,
                                SUM(s.stock)          AS StockActualUSD,
                                SUM(s.presupuesto)    AS PresupuestoStockUSD,
                                SUM(s.pendiente)      AS PendienteUSD
                         FROM Hub_CarteraBNB s
-                                 INNER JOIN FechaActual fa ON s.fechadata = fa.FechaReferencia
+                                 INNER JOIN FechaActual fa ON s.fecha = fa.FechaReferencia
                                  INNER JOIN DimAgencia d ON d.Cod_Agencia = s.Idagencia
                         WHERE (@sucursal IS NULL OR d.Sucursal = @sucursal)
                           AND (@producto IS NULL OR s.segmentacioncredito = @producto)
@@ -345,8 +1057,8 @@ export const queries = {
                                               ELSE s.amortizacion END) AS AmortizacionAcumuladaAnioUSD
                                FROM Hub_CarteraBNB s
                                         INNER JOIN FechaActual fa
-                                                   ON s.fechadata >= DATEFROMPARTS(YEAR(fa.FechaReferencia), 1, 1)
-                                                       AND s.fechadata <= fa.FechaReferencia
+                                                   ON s.fecha >= DATEFROMPARTS(YEAR(fa.FechaReferencia), 1, 1)
+                                                       AND s.fecha <= fa.FechaReferencia
                                         INNER JOIN DimAgencia d ON d.Cod_Agencia = s.Idagencia
                                WHERE (@sucursal IS NULL OR d.Sucursal = @sucursal)
                                  AND (@producto IS NULL OR s.segmentacioncredito = @producto)
@@ -355,7 +1067,7 @@ export const queries = {
              Base AS (SELECT s.segmentacioncredito AS Producto,
                              SUM(s.stock)          AS StockBaseUSD
                       FROM Hub_CarteraBNB s
-                               INNER JOIN FechaBase fb ON s.fechadata = fb.FechaReferencia
+                               INNER JOIN FechaBase fb ON s.fecha = fb.FechaReferencia
                                INNER JOIN DimAgencia d ON d.Cod_Agencia = s.Idagencia
                       WHERE (@sucursal IS NULL OR d.Sucursal = @sucursal)
                         AND (@producto IS NULL OR s.segmentacioncredito = @producto)
@@ -520,77 +1232,69 @@ export const queries = {
     `,
 
     oficiales: `
-        WITH FechaActual AS (
-            SELECT COALESCE(
-                           (
-                               SELECT MAX(FechaData)
-                               FROM Hub_OONN
-                               WHERE @fecha IS NOT NULL
-                                 AND FechaData <= CAST(@fecha AS DATE)
-                           ),
-                           (
-                               SELECT MAX(FechaData)
-                               FROM Hub_OONN
-                           )
-                   ) AS FechaReferencia
-        ),
-             Detalle AS (
-                 SELECT
-                     d.Sucursal,
-                     o.Oficial,
-                     d.Cod_Agencia,
-                     d.Agencia AS NombreAgencia,
-                     SUM(o.MontoDesembolsoDolares) AS DesembolsoOficialUSD
-                 FROM Hub_OONN o
-                          INNER JOIN DimAgencia d
-                                     ON d.Cod_Agencia = o.ID_AGENCIA
-                          INNER JOIN FechaActual fa
-                                     ON o.FechaData >= DATEFROMPARTS(YEAR(fa.FechaReferencia), 1, 1)
-                                         AND o.FechaData <= fa.FechaReferencia
-                 WHERE (@sucursal IS NULL OR d.Sucursal = @sucursal)
-                   AND (@agencia IS NULL OR d.Cod_Agencia = @agencia)
-                 GROUP BY
-                     d.Sucursal,
-                     o.Oficial,
-                     d.Cod_Agencia,
-                     d.Agencia
-             ),
-             TotalAporte AS (
-                 SELECT
-                     SUM(o.MontoDesembolsoDolares) AS TotalAporteUSD
-                 FROM Hub_OONN o
-                          INNER JOIN DimAgencia d
-                                     ON d.Cod_Agencia = o.ID_AGENCIA
-                          INNER JOIN FechaActual fa
-                                     ON o.FechaData >= DATEFROMPARTS(YEAR(fa.FechaReferencia), 1, 1)
-                                         AND o.FechaData <= fa.FechaReferencia
-                 WHERE (@sucursal IS NULL OR d.Sucursal = @sucursal)
-                   AND (@agencia IS NULL OR d.Cod_Agencia = @agencia)
-             )
-        SELECT
-            d.Sucursal,
-            d.Oficial,
-            d.Cod_Agencia,
-            d.NombreAgencia,
-            d.DesembolsoOficialUSD,
-            t.TotalAporteUSD,
-            CASE
-                WHEN t.TotalAporteUSD IS NULL OR t.TotalAporteUSD = 0 THEN NULL
-                ELSE (d.DesembolsoOficialUSD * 100.0 / t.TotalAporteUSD)
-                END AS ParticipacionAportePct
+        WITH FechaActual AS (SELECT COALESCE(
+                                            (SELECT MAX(FechaData)
+                                             FROM Hub_OONN
+                                             WHERE @fecha IS NOT NULL
+                                               AND FechaData <= CAST(@fecha AS DATE)),
+                                            (SELECT MAX(FechaData)
+                                             FROM Hub_OONN)
+                                    ) AS FechaReferencia),
+             Detalle AS (SELECT d.Sucursal,
+                                o.Oficial,
+                                d.Cod_Agencia,
+                                d.Agencia                     AS NombreAgencia,
+                                SUM(o.MontoDesembolsoDolares) AS DesembolsoOficialUSD
+                         FROM Hub_OONN o
+                                  INNER JOIN DimAgencia d
+                                             ON d.Cod_Agencia = o.ID_AGENCIA
+                                  INNER JOIN FechaActual fa
+                                             ON o.FechaData >= DATEFROMPARTS(YEAR(fa.FechaReferencia), 1, 1)
+                                                 AND o.FechaData <= fa.FechaReferencia
+                         WHERE (@sucursal IS NULL OR d.Sucursal = @sucursal)
+                           AND (@agencia IS NULL OR d.Cod_Agencia = @agencia)
+                         GROUP BY d.Sucursal,
+                                  o.Oficial,
+                                  d.Cod_Agencia,
+                                  d.Agencia),
+             TotalAporte AS (SELECT SUM(o.MontoDesembolsoDolares) AS TotalAporteUSD
+                             FROM Hub_OONN o
+                                      INNER JOIN DimAgencia d
+                                                 ON d.Cod_Agencia = o.ID_AGENCIA
+                                      INNER JOIN FechaActual fa
+                                                 ON o.FechaData >= DATEFROMPARTS(YEAR(fa.FechaReferencia), 1, 1)
+                                                     AND o.FechaData <= fa.FechaReferencia
+                             WHERE (@sucursal IS NULL OR d.Sucursal = @sucursal)
+                               AND (@agencia IS NULL OR d.Cod_Agencia = @agencia))
+        SELECT d.Sucursal,
+               d.Oficial,
+               d.Cod_Agencia,
+               d.NombreAgencia,
+               d.DesembolsoOficialUSD,
+               t.TotalAporteUSD,
+               CASE
+                   WHEN t.TotalAporteUSD IS NULL OR t.TotalAporteUSD = 0 THEN NULL
+                   ELSE (d.DesembolsoOficialUSD * 100.0 / t.TotalAporteUSD)
+                   END AS ParticipacionAportePct
         FROM Detalle d
                  CROSS JOIN TotalAporte t
         ORDER BY d.DesembolsoOficialUSD DESC;
     `,
 
     status: `
-        SELECT 'Hub_CarteraBNB' AS Fuente, MAX(fechadata) AS FechaCorte
+        SELECT 'Hub_CarteraBNB' AS Fuente, MAX(fecha) AS FechaCorte
         FROM Hub_CarteraBNB
         UNION ALL
         SELECT 'Hub_CarteraSF' AS Fuente, MAX(fechadata) AS FechaCorte
         FROM Hub_CarteraSF
         UNION ALL
         SELECT 'Hub_OONN' AS Fuente, MAX(FechaData) AS FechaCorte
-        FROM Hub_OONN;
+        FROM Hub_OONN
+        UNION ALL
+        SELECT 'Hub_CarteraSF_COMPARTIDA' AS Fuente, MAX(FECHA) AS FechaCorte
+        FROM Hub_CarteraSF_COMPARTIDA
+        UNION ALL
+        SELECT 'Hub_Captaciones' AS Fuente, MAX(Fecha) AS FechaCorte
+        FROM Hub_Captaciones;
     `
 };

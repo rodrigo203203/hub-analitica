@@ -84,5 +84,16 @@ export const api = {
         get('/api/fuentes/status'),
 
     agentQuery: (message, useMcp = false) =>
-        post('/api/agent/query', { message, useMcp })
+        post('/api/agent/query', {message, useMcp}),
+    pdRisk: (params) =>
+        get(`/api/cartera/pd-risk${queryString(params)}`),
+    pdRiskHistory: (params) =>
+        get(`/api/cartera/pd-risk-history${queryString(params)}`),sharedPortfolio: (params) =>
+        get(`/api/sistema-financiero/cartera-compartida${queryString(params)}`),
+
+    captaciones: (params) =>
+        get(`/api/captaciones/desempeno${queryString(params)}`),
+
+    captacionesHistorico: (params) =>
+        get(`/api/captaciones/historico${queryString(params)}`),
 };

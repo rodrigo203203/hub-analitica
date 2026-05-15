@@ -14,7 +14,20 @@ import {
     summary,
     timeSeries
 } from './mockData.js';
-import {fetchCatalogsFromSql, getPool, hasSqlConfig, queries, query} from './sql.js';
+import {
+    fetchCatalogsFromSql,
+    getPool,
+    hasSqlConfig,
+    queries,
+    query,
+    fetchProjectionFromSql,
+    fetchProjectionByProductFromSql,
+    fetchPdRiskFromSql,
+    fetchPdRiskHistoryFromSql,
+    fetchSharedPortfolioFromSql,
+    fetchCaptacionesFromSql,
+    fetchCaptacionesHistoryFromSql
+} from './sql.js';
 
 const app = express();
 const port = Number(process.env.PORT || 4000);
@@ -29,6 +42,24 @@ const pct = (value) => (value === null || value === undefined ? null : Number(va
 async function sqlMode() {
     const pool = await getPool();
     return {mode: pool ? 'sql-server' : 'mock'};
+}
+
+function mapProjectionRows(rows = []) {
+    const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+    return rows.map((row) => {
+        const fecha = row.Fecha ? new Date(row.Fecha) : null;
+        const monthIndex = fecha && !Number.isNaN(fecha.getTime()) ? fecha.getMonth() : null;
+
+        return {
+            fecha: row.Fecha,
+            month: monthIndex !== null ? monthNames[monthIndex] : String(row.Fecha || ''),
+            producto: row.Producto,
+            tipoDato: row.TipoDato,
+            desembolso: Number(row.DesembolsoUSD || 0) / 1_000_000,
+            amortizacion: Number(row.AmortizacionUSD || 0) / 1_000_000
+        };
+    });
 }
 
 function normalizeMulti(value, allValue) {
@@ -153,6 +184,31 @@ function buildDynamicAlerts(data) {
     });
 
     return alerts;
+}
+
+function parseMulti(value) {
+    if (value === undefined || value === null || value === '') return null;
+
+    if (Array.isArray(value)) {
+        const clean = value
+            .map((v) => String(v || '').trim())
+            .filter(Boolean)
+            .filter((v) => v !== 'TODOS' && v !== 'TODAS');
+
+        return clean.length ? clean : null;
+    }
+
+    const text = String(value || '').trim();
+
+    if (!text || text === 'TODOS' || text === 'TODAS') return null;
+
+    const values = text
+        .split(',')
+        .map((v) => v.trim())
+        .filter(Boolean)
+        .filter((v) => v !== 'TODOS' && v !== 'TODAS');
+
+    return values.length ? values : null;
 }
 
 function buildKpisFromSummary(data) {
@@ -322,8 +378,8 @@ app.get('/api/cartera/timeseries', async (req, res, next) => {
             data = [];
         } else {
             data = result.recordset.map((row) => ({
-                month: new Intl.DateTimeFormat('es-BO', {month: 'short'}).format(new Date(row.fechadata)),
-                fecha: row.fechadata,
+                month: new Intl.DateTimeFormat('es-BO', {month: 'short'}).format(new Date(row.fecha)),
+                fecha: row.fecha,
                 desembolso: money(row.DesembolsoUSD) / 1_000_000,
                 amortizacion: money(row.AmortizacionUSD) / 1_000_000,
                 stock: money(row.StockActualUSD) / 1_000_000,
@@ -338,26 +394,90 @@ app.get('/api/cartera/timeseries', async (req, res, next) => {
     }
 });
 
-app.get('/api/cartera/projection', async (req, res) => {
-    const scenario = ['base', 'optimista', 'conservador'].includes(req.query.scenario)
-        ? req.query.scenario
-        : 'base';
+app.get('/api/cartera/projection', async (req, res, next) => {
+    try {
+        const scenario = ['base', 'optimista', 'conservador'].includes(req.query.scenario)
+            ? req.query.scenario
+            : 'base';
 
-    res.json({
-        data: getProjection(scenario),
-        scenario,
-        ...await sqlMode()
-    });
+        const f = parseFilters(req);
+
+        const result = await fetchProjectionFromSql(scenario, {
+            fecha: f.fecha,
+            sucursal: f.sucursal,
+            producto: f.producto,
+            agencia: f.agencia
+        });
+
+        if (result === null) {
+            return res.json({
+                data: getProjection(scenario),
+                scenario,
+                ...await sqlMode()
+            });
+        }
+
+        const rows = mapProjectionRows(result.recordset || []);
+
+        const groupedByMonth = new Map();
+
+        rows.forEach((row) => {
+            const key = `${row.fecha}-${row.month}-${row.tipoDato}`;
+
+            if (!groupedByMonth.has(key)) {
+                groupedByMonth.set(key, {
+                    fecha: row.fecha,
+                    month: row.month,
+                    tipoDato: row.tipoDato,
+                    desembolso: 0,
+                    amortizacion: 0
+                });
+            }
+
+            const current = groupedByMonth.get(key);
+            current.desembolso += Number(row.desembolso || 0);
+            current.amortizacion += Number(row.amortizacion || 0);
+        });
+
+        res.json({
+            data: Array.from(groupedByMonth.values()),
+            scenario,
+            ...await sqlMode()
+        });
+    } catch (error) {
+        next(error);
+    }
 });
 
-app.get('/api/cartera/projection-by-product', async (req, res) => {
-    const scenario = req.query.scenario || 'base';
-    const product = req.query.product || 'TODOS';
+app.get('/api/cartera/projection-by-product', async (req, res, next) => {
+    try {
+        const scenario = ['base', 'optimista', 'conservador'].includes(req.query.scenario)
+            ? req.query.scenario
+            : 'base';
 
-    res.json({
-        data: getProjectionByProduct(scenario, product),
-        ...await sqlMode()
-    });
+        const product = req.query.product || 'TODOS';
+        const f = parseFilters(req);
+
+        const result = await fetchProjectionByProductFromSql(scenario, product, {
+            fecha: f.fecha,
+            sucursal: f.sucursal,
+            agencia: f.agencia
+        });
+
+        if (result === null) {
+            return res.json({
+                data: getProjectionByProduct(scenario, product),
+                ...await sqlMode()
+            });
+        }
+
+        res.json({
+            data: mapProjectionRows(result.recordset || []),
+            ...await sqlMode()
+        });
+    } catch (error) {
+        next(error);
+    }
 });
 
 app.get('/api/cartera/kpis-by-product', async (req, res, next) => {
@@ -555,10 +675,17 @@ app.get('/api/fuentes/status', async (_req, res, next) => {
                 },
                 {
                     fuente: 'Captaciones',
-                    tipo: 'Pendiente',
-                    tabla: 'Sin fuente declarada',
-                    fechaCorte: null,
-                    estado: 'Pendiente'
+                    tipo: 'SQL Server',
+                    tabla: 'Hub_Captaciones',
+                    fechaCorte: sqlDates.Hub_Captaciones || null,
+                    estado: 'Activa'
+                },
+                {
+                    fuente: 'Hub_CarteraSF_COMPARTIDA',
+                    tipo: 'SQL Server',
+                    tabla: 'Hub_CarteraSF_COMPARTIDA',
+                    fechaCorte: sqlDates.Hub_CarteraSF_COMPARTIDA || null,
+                    estado: 'Vigente'
                 }
             ],
             ...await sqlMode()
@@ -570,10 +697,10 @@ app.get('/api/fuentes/status', async (_req, res, next) => {
 
 app.post('/api/agent/query', async (req, res, next) => {
     try {
-        const prompt = String(req.body?.message || '').trim();
-        const useMcp = Boolean(req.body?.useMcp); // Capturamos el nuevo flag
+        const rawPrompt = String(req.body?.message || '').trim();
+        const useMcp = req.body?.useMcp === true;
 
-        if (!prompt) {
+        if (!rawPrompt) {
             return res.status(400).json({error: 'message is required'});
         }
 
@@ -582,16 +709,48 @@ app.post('/api/agent/query', async (req, res, next) => {
         const apiKey = process.env.ANYTHING_LLM_API_KEY;
 
         if (url && workspace && apiKey) {
-            // Construimos el mensaje condicionalmente
-            let finalMessage = prompt;
-            if (useMcp) {
-                finalMessage += `\n\nPor favor usa el mcp 'Mcp Comerial' ejecutando el comando consultar_datos_comerciales.`;
+            let cleanPrompt = rawPrompt;
+
+            if (!useMcp) {
+                cleanPrompt = cleanPrompt
+                    .replace(/@agent/gi, '')
+                    .replace(/consultar_datos_comerciales/gi, '')
+                    .replace(/mcp-comercial/gi, '')
+                    .replace(/mcp comercial/gi, '')
+                    .replace(/\bMCP\b/gi, '')
+                    .trim();
             }
+
+            const finalMessage = useMcp
+                ? `
+MODO MCP ACTIVADO.
+
+Usa el MCP comercial solamente si la consulta requiere datos reales de cartera.
+Herramienta permitida: consultar_datos_comerciales.
+
+Consulta:
+${cleanPrompt}
+`.trim()
+                : `
+MODO CHAT NORMAL.
+
+Reglas obligatorias:
+- No uses MCP.
+- No uses @agent.
+- No invoques herramientas.
+- No ejecutes consultar_datos_comerciales.
+- No intentes consultar bases de datos.
+- Responde como chat normal.
+- Si el usuario pide datos exactos no disponibles en el contexto, indica que debe activar MCP.
+
+Consulta:
+${cleanPrompt}
+`.trim();
 
             const response = await fetch(`${url}/api/v1/workspace/${workspace}/chat`, {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${apiKey}`,
+                    Authorization: `Bearer ${apiKey}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
@@ -602,11 +761,40 @@ app.post('/api/agent/query', async (req, res, next) => {
 
             if (!response.ok) {
                 const text = await response.text();
-                throw new Error(`AnythingLLM error: ${response.status} ${text}`);
+
+                console.error('AnythingLLM API error:', {
+                    status: response.status,
+                    body: text
+                });
+
+                let parsed = null;
+
+                try {
+                    parsed = JSON.parse(text);
+                } catch {
+                    parsed = null;
+                }
+
+                const anythingError = parsed?.error || text || '';
+
+                if (
+                    anythingError.includes('Ollama instance could not be reached') ||
+                    anythingError.toLowerCase().includes('ollama')
+                ) {
+                    return res.status(502).json({
+                        error: 'AnythingLLM no pudo conectarse a Ollama.',
+                        detail: 'Verifica que Ollama esté levantado y que AnythingLLM tenga configurada correctamente la URL del proveedor LLM.'
+                    });
+                }
+
+                return res.status(502).json({
+                    error: 'AnythingLLM devolvió un error.',
+                    detail: anythingError
+                });
             }
 
             const data = await response.json();
-            const answer = data.textResponse || data.text || data.response || "Sin respuesta del modelo.";
+            const answer = data.textResponse || data.text || data.response || 'Sin respuesta del modelo.';
 
             return res.json({
                 data: {
@@ -617,15 +805,111 @@ app.post('/api/agent/query', async (req, res, next) => {
             });
         }
 
-        res.json({
+        return res.json({
             data: {
-                answer: buildAgentAnswer(prompt),
+                answer: buildAgentAnswer(rawPrompt),
                 citations: ['Hub_CarteraBNB', 'Hub_CarteraSF', 'Hub_OONN', 'DimAgencia']
             },
             ...await sqlMode()
         });
     } catch (error) {
         next(error);
+    }
+});
+
+app.get('/api/cartera/pd-risk', async (req, res) => {
+    try {
+        const params = {
+            fecha: req.query.fecha || null,
+            sucursal: parseMulti(req.query.sucursal),
+            producto: parseMulti(req.query.producto),
+            agencia: parseMulti(req.query.agencia)
+        };
+
+        const result = await fetchPdRiskFromSql(params);
+
+        if (result) {
+            return res.json({
+                data: result.recordset.map((row) => ({
+                    fecha: row.Fecha,
+                    producto: row.Producto,
+                    codAgencia: row.Cod_Agencia,
+                    nombreAgencia: row.NombreAgencia,
+                    sucursal: row.Sucursal,
+                    alto: Number(row.Alto || 0),
+                    media: Number(row.Media || 0),
+                    baja: Number(row.Baja || 0),
+                    totalOperaciones: Number(row.TotalOperaciones || 0),
+                    altoPct: row.AltoPct === null || row.AltoPct === undefined ? null : Number(row.AltoPct),
+                    mediaPct: row.MediaPct === null || row.MediaPct === undefined ? null : Number(row.MediaPct),
+                    bajaPct: row.BajaPct === null || row.BajaPct === undefined ? null : Number(row.BajaPct)
+                })),
+                ...await sqlMode()
+            });
+        }
+
+        return res.json({
+            data: [],
+            ...await sqlMode()
+        });
+    } catch (error) {
+        console.error('GET /api/cartera/pd-risk:', error);
+
+        return res.status(500).json({
+            error: 'No se pudo obtener la información de riesgo predictivo.',
+            detail: process.env.NODE_ENV === 'production' ? undefined : error.message
+        });
+    }
+});
+
+app.get('/api/cartera/pd-risk-history', async (req, res) => {
+    try {
+        const params = {
+            sucursal: parseMulti(req.query.sucursal),
+            producto: parseMulti(req.query.producto),
+            agencia: parseMulti(req.query.agencia)
+        };
+
+        const result = await fetchPdRiskHistoryFromSql(params);
+
+        if (result) {
+            return res.json({
+                data: result.recordset.map((row) => {
+                    const alto = Number(row.Alto || 0);
+                    const media = Number(row.Media || 0);
+                    const baja = Number(row.Baja || 0);
+                    const total = alto + media + baja;
+
+                    return {
+                        fecha: row.Fecha,
+                        producto: row.Producto,
+                        codAgencia: row.Cod_Agencia,
+                        nombreAgencia: row.NombreAgencia,
+                        sucursal: row.Sucursal,
+                        alto,
+                        media,
+                        baja,
+                        totalOperaciones: total,
+                        altoPct: total > 0 ? (alto * 100) / total : null,
+                        mediaPct: total > 0 ? (media * 100) / total : null,
+                        bajaPct: total > 0 ? (baja * 100) / total : null
+                    };
+                }),
+                ...await sqlMode()
+            });
+        }
+
+        return res.json({
+            data: [],
+            ...await sqlMode()
+        });
+    } catch (error) {
+        console.error('GET /api/cartera/pd-risk-history:', error);
+
+        return res.status(500).json({
+            error: 'No se pudo obtener el histórico de riesgo predictivo.',
+            detail: process.env.NODE_ENV === 'production' ? undefined : error.message
+        });
     }
 });
 
@@ -659,4 +943,203 @@ app.use((error, _req, res, _next) => {
 app.listen(port, host, () => {
     console.log(`Hub Analitico BNB API listening on http://${host}:${port}`);
     sqlMode().then(m => console.log(`Data mode: ${m.mode}`));
+});
+
+app.get('/api/sistema-financiero/cartera-compartida', async (req, res, next) => {
+    try {
+        const f = parseFilters(req);
+
+        const result = await fetchSharedPortfolioFromSql({
+            fecha: f.fecha,
+            sucursal: f.sucursal,
+            producto: f.producto,
+            agencia: f.agencia
+        });
+
+        if (!result) {
+            return res.json({
+                data: [],
+                ...await sqlMode()
+            });
+        }
+
+        const data = (result.recordset || []).map((row) => {
+            const bancos = {
+                BNB: money(row.BNB),
+                BIS: money(row.BIS),
+                BCR: money(row.BCR),
+                BEC: money(row.BEC),
+                BIE: money(row.BIE),
+                BGA: money(row.BGA),
+                BME: money(row.BME),
+                BSO: money(row.BSO),
+                OTRO: money(row.OTRO)
+            };
+
+            return {
+                fecha: row.Fecha,
+                segmento: row.Segmento,
+                codAgencia: row.Cod_Agencia,
+                nombreAgencia: row.NombreAgencia,
+                sucursal: row.Sucursal,
+
+                clientesCompartidos: Number(row.ClientesCompartidos || 0),
+
+                bnb: bancos.BNB,
+                bis: bancos.BIS,
+                bcr: bancos.BCR,
+                bec: bancos.BEC,
+                bie: bancos.BIE,
+                bga: bancos.BGA,
+                bme: bancos.BME,
+                bso: bancos.BSO,
+                otro: bancos.OTRO,
+
+                otrosBancos: money(row.OtrosBancos),
+                totalCompartido: money(row.TotalCompartido),
+                participacionBNBPct: pct(row.ParticipacionBNBPct),
+                participacionOtrosPct: pct(row.ParticipacionOtrosPct),
+
+                bancos
+            };
+        });
+
+        return res.json({
+            data,
+            ...await sqlMode()
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get('/api/captaciones/desempeno', async (req, res, next) => {
+    try {
+        const f = parseFilters(req);
+
+        const result = await fetchCaptacionesFromSql({
+            fecha: f.fecha,
+            sucursal: f.sucursal,
+            agencia: f.agencia
+        });
+
+        if (!result) {
+            return res.json({
+                data: [],
+                ...await sqlMode()
+            });
+        }
+
+        const data = (result.recordset || []).map((row) => ({
+            fecha: row.Fecha,
+            codAgencia: row.Cod_Agencia,
+            nombreAgencia: row.NombreAgencia,
+            sucursal: row.Sucursal,
+
+            ejecutadaCaptaciones: Number(row.EjecutadaCaptaciones || 0),
+            presupuestadaCaptaciones: Number(row.PresupuestadaCaptaciones || 0),
+            brechaCaptaciones: Number(row.BrechaCaptaciones || 0),
+            cumplimientoCaptacionesPct:
+                row.CumplimientoCaptacionesPct === null || row.CumplimientoCaptacionesPct === undefined
+                    ? null
+                    : Number(row.CumplimientoCaptacionesPct),
+
+            ejecutadaVista: Number(row.EjecutadaVista || 0),
+            presupuestadaVista: Number(row.PresupuestadaVista || 0),
+            brechaVista: Number(row.BrechaVista || 0),
+            cumplimientoVistaPct:
+                row.CumplimientoVistaPct === null || row.CumplimientoVistaPct === undefined
+                    ? null
+                    : Number(row.CumplimientoVistaPct),
+
+            ejecutadaAhorros: Number(row.EjecutadaAhorros || 0),
+            presupuestadaAhorros: Number(row.PresupuestadaAhorros || 0),
+            brechaAhorros: Number(row.BrechaAhorros || 0),
+            cumplimientoAhorrosPct:
+                row.CumplimientoAhorrosPct === null || row.CumplimientoAhorrosPct === undefined
+                    ? null
+                    : Number(row.CumplimientoAhorrosPct),
+
+            ejecutadaPlazo: Number(row.EjecutadaPlazo || 0),
+            presupuestadaPlazo: Number(row.PresupuestadaPlazo || 0),
+            brechaPlazo: Number(row.BrechaPlazo || 0),
+            cumplimientoPlazoPct:
+                row.CumplimientoPlazoPct === null || row.CumplimientoPlazoPct === undefined
+                    ? null
+                    : Number(row.CumplimientoPlazoPct),
+
+            tendenciaCaptaciones: Number(row.TendenciaCaptaciones || 0),
+            categoriaTendencia: row.CategoriaTendencia || 'N/D'
+        }));
+
+        return res.json({
+            data,
+            ...await sqlMode()
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get('/api/captaciones/historico', async (req, res, next) => {
+    try {
+        const f = parseFilters(req);
+
+        const result = await fetchCaptacionesHistoryFromSql({
+            sucursal: f.sucursal,
+            agencia: f.agencia
+        });
+
+        if (!result) {
+            return res.json({
+                data: [],
+                ...await sqlMode()
+            });
+        }
+
+        const data = (result.recordset || []).map((row) => ({
+            fecha: row.Fecha,
+
+            ejecutadaCaptaciones: Number(row.EjecutadaCaptaciones || 0),
+            presupuestadaCaptaciones: Number(row.PresupuestadaCaptaciones || 0),
+            brechaCaptaciones: Number(row.BrechaCaptaciones || 0),
+            cumplimientoCaptacionesPct:
+                row.CumplimientoCaptacionesPct === null || row.CumplimientoCaptacionesPct === undefined
+                    ? null
+                    : Number(row.CumplimientoCaptacionesPct),
+
+            ejecutadaVista: Number(row.EjecutadaVista || 0),
+            presupuestadaVista: Number(row.PresupuestadaVista || 0),
+            brechaVista: Number(row.BrechaVista || 0),
+            cumplimientoVistaPct:
+                row.CumplimientoVistaPct === null || row.CumplimientoVistaPct === undefined
+                    ? null
+                    : Number(row.CumplimientoVistaPct),
+
+            ejecutadaAhorros: Number(row.EjecutadaAhorros || 0),
+            presupuestadaAhorros: Number(row.PresupuestadaAhorros || 0),
+            brechaAhorros: Number(row.BrechaAhorros || 0),
+            cumplimientoAhorrosPct:
+                row.CumplimientoAhorrosPct === null || row.CumplimientoAhorrosPct === undefined
+                    ? null
+                    : Number(row.CumplimientoAhorrosPct),
+
+            ejecutadaPlazo: Number(row.EjecutadaPlazo || 0),
+            presupuestadaPlazo: Number(row.PresupuestadaPlazo || 0),
+            brechaPlazo: Number(row.BrechaPlazo || 0),
+            cumplimientoPlazoPct:
+                row.CumplimientoPlazoPct === null || row.CumplimientoPlazoPct === undefined
+                    ? null
+                    : Number(row.CumplimientoPlazoPct),
+
+            tendenciaCaptaciones: Number(row.TendenciaCaptaciones || 0)
+        }));
+
+        return res.json({
+            data,
+            ...await sqlMode()
+        });
+    } catch (error) {
+        next(error);
+    }
 });

@@ -15,7 +15,12 @@ import Textarea from 'primevue/textarea';
 import {marked} from 'marked';
 import {api} from './api';
 import {dateIso, money, moneyFull, percent} from './format';
-
+// Fotos
+import ronyImg from './img/rony.jpg'
+import marceloImg from './img/marcelo.jpg'
+import fraijaImg from './img/fraija.jpg'
+import luciaImg from './img/lucia.jpg'
+import rodrigoImg from './img/rodrigo.jpg'
 // ─────────────────────────────────────────────────────────────
 // Helpers base
 // ─────────────────────────────────────────────────────────────
@@ -49,16 +54,23 @@ function toPeriodYYYYMM(value) {
 
   const text = String(value).trim();
 
-  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+  // Soporta fechas ISO completas:
+  // 2025-01-31T00:00:00.000Z -> 202501
+  // 2025-01-31T00:00:00.000-04:00 -> 202501
+  if (/^\d{4}-\d{2}/.test(text)) {
     return text.slice(0, 7).replace('-', '');
   }
 
-  if (/^\d{4}-\d{2}$/.test(text)) {
-    return text.replace('-', '');
-  }
-
+  // Soporta 202501
   if (/^\d{6}$/.test(text)) {
     return text;
+  }
+
+  // Soporta Date real de JS
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    return `${year}${month}`;
   }
 
   return text;
@@ -122,25 +134,28 @@ const sections = [
   {id: 'portada', label: 'Portada', icon: 'house'},
   {id: 'gobernanza', label: 'Gobernanza', icon: 'shield-halved'},
   {id: 'organigrama', label: 'Organigrama', icon: 'sitemap'},
+  {id: 'agente', label: 'Agente IA', icon: 'brain'},
   {
     id: 'cartera',
     label: 'Cartera',
     icon: 'chart-line',
+    groupOnly: true,
     children: [
-      {id: 'kpis', label: 'KPIs ejecutivos', icon: 'gauge-high'},
-      {id: 'proyeccion', label: 'Proyeccion', icon: 'arrow-trend-up'},
+      {id: 'desempeno', label: 'Desempeño comercial', icon: 'gauge-high'},
+      {id: 'riesgo-pd', label: 'Riesgo predictivo', icon: 'triangle-exclamation'},
+      {id: 'proyeccion', label: 'Proyección', icon: 'arrow-trend-up'},
       {id: 'sistema', label: 'Sistema financiero', icon: 'table-cells'},
-      {id: 'agente', label: 'Agente IA', icon: 'brain'}
     ]
   },
   {
     id: 'captaciones',
     label: 'Captaciones',
-    icon: 'building-columns',
+    icon: 'piggy-bank',
+    groupOnly: true,
     children: [
-      {id: 'capt-kpis', label: 'KPIs', icon: 'chart-pie'},
-      {id: 'capt-natural', label: 'Persona natural', icon: 'user-tie'},
-      {id: 'capt-juridica', label: 'Persona juridica', icon: 'building-columns'}
+      {id: 'capt-desempeno', label: 'Desempeño captaciones', icon: 'chart-simple'},
+      {id: 'capt-tendencias', label: 'Tendencias captaciones', icon: 'arrow-trend-up'},
+      {id: 'capt-fuga', label: 'Fuga de captaciones', icon: 'triangle-exclamation'}
     ]
   },
   {id: 'actualizaciones', label: 'Actualizaciones', icon: 'database'}
@@ -154,6 +169,16 @@ const active = ref('portada');
 const hasEntered = ref(false);
 const menuOpen = ref(false);
 const sidebarCollapsed = ref(false);
+const captaciones = ref([]);
+const captacionesHistorico = ref([]);
+const captacionHistoricoProducto = ref('TODOS');
+
+const captacionHistoricoProductoOptions = [
+  { label: 'Todos', value: 'TODOS' },
+  { label: 'Vista', value: 'VISTA' },
+  { label: 'Ahorros', value: 'AHORROS' },
+  { label: 'DPF / Plazo', value: 'PLAZO' }
+];
 const dataMode = ref('mock');
 const selectedPeriod = ref('Ultimo corte');
 const periods = ['Ultimo corte', '2026 Q2', '2026 Q1', '2025 cierre'];
@@ -206,7 +231,11 @@ const chartFilters = ref({
 });
 
 const projectionMetrics = ['AMBOS', 'DESEMBOLSOS', 'AMORTIZACION'];
-const scenario = ref('base');
+const desembolsoScenario = ref('base');
+const amortizacionScenario = ref('base');
+
+const draftDesembolsoScenario = ref('base');
+const draftAmortizacionScenario = ref('base');
 
 const scenarios = [
   {label: 'Base', value: 'base'},
@@ -224,14 +253,28 @@ const kpis = ref([]);
 const kpisProductData = ref([]);
 const projection = ref([]);
 const projectionProductData = ref({});
-const selectedProjProducts = ref(['CONSUMO', 'VIVIENDA']);
+const selectedProjProducts = ref(['CONSUMO',
+  'VIVIENDA',
+  'VIVIENDA SOCIAL',
+  'TARJETAS DE CREDITO',
+  'VEHICULAR',
+  'MICROCREDITO']);
+const draftProjectionMetric = ref('AMBOS');
+const draftSelectedProjProducts = ref(['CONSUMO',
+  'VIVIENDA',
+  'VIVIENDA SOCIAL',
+  'TARJETAS DE CREDITO',
+  'VEHICULAR',
+  'MICROCREDITO']);
 const benchmark = ref([]);
 const marketShare = ref([]);
+const sharedPortfolio = ref([]);
 const oficiales = ref([]);
 const oficialesFirst = ref(0);
 const fuentes = ref([]);
 const filteredTimeSeries = ref([]);
-
+const pdRisk = ref([]);
+const pdRiskHistory = ref([]);
 // ─────────────────────────────────────────────────────────────
 // Chat y memoria temporal
 // ─────────────────────────────────────────────────────────────
@@ -248,6 +291,44 @@ const chat = ref([
     text: 'Hola. Soy el Analista IA de cartera. Puedo ayudarte a explorar KPIs, interpretar la brecha presupuestaria, comparar BNB con el sistema financiero y revisar el desempeño comercial. ¿Qué quieres saber?'
   }
 ]);
+
+async function loadProjectionByProduct() {
+  for (const prod of selectedProjProducts.value) {
+    if (!projectionProductData.value[prod]) {
+      try {
+        projectionProductData.value[prod] = await fetchMergedProjectionByProduct(prod);
+      } catch (error) {
+        console.error('projectionByProduct error:', prod, error);
+        projectionProductData.value[prod] = [];
+      }
+    }
+  }
+}
+
+async function applyProjectionFilters() {
+  chartFilters.value.projectionMetric = draftProjectionMetric.value;
+  selectedProjProducts.value = [...draftSelectedProjProducts.value];
+
+  desembolsoScenario.value = draftDesembolsoScenario.value;
+  amortizacionScenario.value = draftAmortizacionScenario.value;
+
+  projectionProductData.value = {};
+
+  const params = {
+    fecha: filtersApplied.value.fecha,
+    sucursal: filtersApplied.value.sucursal,
+    producto: filtersApplied.value.producto,
+    agencia: filtersApplied.value.agencia,
+    banco: filtersApplied.value.banco
+  };
+
+  try {
+    projection.value = await fetchMergedProjection(params);
+    await loadProjectionByProduct();
+  } catch (error) {
+    console.error('applyProjectionFilters error:', error);
+  }
+}
 
 function compactPromptForMemory(text, maxLength = 2500) {
   const clean = String(text || '')
@@ -290,6 +371,37 @@ Instrucción de continuidad:
 `.trim();
 }
 
+function buildMessageForNormalChat(currentMessage) {
+  return `
+Contexto conversacional previo de esta sesión:
+${buildConversationMemoryText()}
+
+Consulta actual del usuario:
+${currentMessage}
+
+Modo:
+- Chat normal.
+- No usar MCP.
+- No usar herramientas.
+- No invocar @agent.
+- Responder de forma conversacional.
+`.trim();
+}
+
+function buildMessageForMcp(currentMessage) {
+  return `
+Contexto conversacional previo de esta sesión:
+${buildConversationMemoryText()}
+
+Consulta actual del usuario:
+${currentMessage}
+
+Modo:
+- MCP activado por el usuario.
+- Puedes usar datos reales mediante la herramienta comercial cuando sea necesario.
+`.trim();
+}
+
 function addToChatMemory(role, text) {
   chatMemory.value.push({
     role,
@@ -327,7 +439,7 @@ const orgArea = {
     {
       nombre: 'Marcelo Fraija',
       cargo: 'Analista de Información',
-      icon: 'chart-simple',
+      img: fraijaImg,
       tone: 'analyst',
       agentes: [
         {
@@ -347,19 +459,19 @@ const orgArea = {
     {
       nombre: 'Lucia Perez',
       cargo: 'Gestor de Datos',
-      icon: 'database',
+      img: luciaImg,
       tone: 'data'
     },
     {
       nombre: 'Marcelo Cabrera',
       cargo: 'Analista Sr. de Datos',
-      icon: 'ranking-star',
+      img: marceloImg,
       tone: 'senior'
     },
     {
       nombre: 'Rodrigo Morales',
       cargo: 'Analista de Datos',
-      icon: 'chart-line',
+      img: rodrigoImg,
       tone: 'analyst'
     }
   ]
@@ -370,7 +482,7 @@ const orgArea = {
 // ─────────────────────────────────────────────────────────────
 
 const activeTitle = computed(() => {
-  const flat = sections.flatMap((s) => [s, ...(s.children || [])]);
+  const flat = sections.flatMap((s) => [...(s.children || []), ...(s.groupOnly ? [] : [s])]);
   return flat.find((item) => item.id === active.value)?.label || 'Hub Analitico';
 });
 
@@ -389,7 +501,7 @@ const dateOptions = computed(() =>
 );
 
 const showFilters = computed(() =>
-    !['gobernanza', 'organigrama', 'agente', 'actualizaciones'].includes(active.value)
+    !['gobernanza', 'organigrama', 'actualizaciones', 'cartera'].includes(active.value)
 );
 
 const productTotals = computed(() => {
@@ -507,11 +619,339 @@ const chartOptions = {
   }
 };
 
-const portadaFlowChartOptions = {
+const projectionChartOptions = {
   responsive: true,
   maintainAspectRatio: false,
   animation: {duration: 600, easing: 'easeOutQuart'},
   interaction: {mode: 'index', intersect: false},
+  plugins: {
+    legend: {
+      display: true,
+      labels: {
+        color: '#4a6355',
+        boxWidth: 12,
+        padding: 16,
+        usePointStyle: true,
+        filter: (legendItem) => {
+          const label = String(legendItem.text || '');
+          return !label.includes('Proy') && !label.includes('Proyect');
+        }
+      }
+    },
+    tooltip: {
+      ...tooltipBase,
+      // EL FILTRO CORREGIDO:
+      filter: (tooltipItem) => {
+        const label = tooltipItem.dataset.label || '';
+
+        // Atrapamos cualquier variante (Proyectado, Proyectada o Proy.)
+        if (label.includes('Proy')) {
+
+          // Construimos el nombre exacto de su pareja "Real"
+          const realLabel = label
+              .replace('Proyectado', 'Real')
+              .replace('Proyectada', 'Real')
+              .replace('Proy.', 'Real');
+
+          const realDataset = tooltipItem.chart.data.datasets.find(d => d.label === realLabel);
+
+          // Si la línea "Real" tiene un valor válido en este mes exacto,
+          // ocultamos la línea "Proyectada" del tooltip.
+          if (realDataset && realDataset.data[tooltipItem.dataIndex] !== null && realDataset.data[tooltipItem.dataIndex] !== undefined) {
+            return false;
+          }
+        }
+
+        return true; // Mostrar el resto normalmente
+      },
+      callbacks: {
+        label: (ctx) => {
+          const val = ctx.parsed.y;
+          if (val === null || val === undefined) return '';
+          return ` ${ctx.dataset.label}: ${Number(val).toLocaleString('en-US', {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+          })}`;
+        }
+      }
+    }
+  },
+  scales: {
+    x: {
+      grid: {color: 'rgba(15,31,22,.04)', drawBorder: false},
+      ticks: {color: '#6f8177', font: {size: 12}}
+    },
+    y: {
+      grid: {color: 'rgba(15,31,22,.05)', drawBorder: false},
+      ticks: {
+        color: '#6f8177',
+        font: {size: 12},
+        callback: (value) => Number(value).toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0})
+      }
+    }
+  }
+};
+
+const portadaFlowChartOptions = computed(() => {
+  const values = [
+    ...(flowChart.value?.datasets?.find((d) => d.label === 'Stock ejecutado')?.data || []),
+    ...(flowChart.value?.datasets?.find((d) => d.label === 'Presupuesto')?.data || [])
+  ]
+      .map((v) => Number(v || 0))
+      .filter((v) => Number.isFinite(v));
+
+  const minValue = values.length ? Math.min(...values) : 0;
+  const maxValue = values.length ? Math.max(...values) : 0;
+  const range = Math.max(maxValue - minValue, 1);
+
+  // Escala más honesta: no arranca pegada al mínimo.
+  // Baja bastante el mínimo para que la diferencia no parezca exagerada.
+  const visualMin = Math.max(0, minValue - range * 2.5);
+  const visualMax = maxValue + range * 0.6;
+
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: {duration: 600, easing: 'easeOutQuart'},
+    interaction: {mode: 'index', intersect: false},
+
+    plugins: {
+      legend: {
+        display: true,
+        position: 'top',
+        labels: {
+          color: '#4a6355',
+          boxWidth: 12,
+          padding: 16,
+          usePointStyle: true,
+          filter: (legendItem) => legendItem.text !== 'Diferencia'
+        }
+      },
+
+      tooltip: {
+        ...tooltipBase,
+        callbacks: {
+          label: (ctx) => {
+            const value = Number(ctx.parsed.y || ctx.raw || 0);
+
+            if (ctx.dataset.label === 'Diferencia') {
+              return ` Diferencia: ${signedMoneyFullNoDecimals(value)}`;
+            }
+
+            return ` ${ctx.dataset.label}: ${moneyFullNoDecimals(value)}`;
+          },
+
+          afterBody: (items) => {
+            const stockItem = items.find((item) => item.dataset.label === 'Stock ejecutado');
+            const presupuestoItem = items.find((item) => item.dataset.label === 'Presupuesto');
+
+            if (!stockItem || !presupuestoItem) return [];
+
+            const stock = Number(stockItem.raw || 0);
+            const presupuesto = Number(presupuestoItem.raw || 0);
+            const diferencia = stock - presupuesto;
+            const cumplimiento = presupuesto > 0 ? (stock / presupuesto) * 100 : null;
+
+            return [
+              '',
+              `Diferencia: ${signedMoneyFullNoDecimals(diferencia)}`,
+              `Cumplimiento: ${cumplimiento === null ? 'N/A' : `${cumplimiento.toFixed(2)}%`}`
+            ];
+          },
+
+          labelColor: (ctx) => {
+            if (ctx.dataset.label === 'Stock ejecutado') {
+              return {
+                borderColor: '#26b460',
+                backgroundColor: '#26b460'
+              };
+            }
+
+            if (ctx.dataset.label === 'Presupuesto') {
+              return {
+                borderColor: '#8b5cf6',
+                backgroundColor: '#8b5cf6'
+              };
+            }
+
+            const value = Number(ctx.raw || 0);
+
+            return {
+              borderColor: value >= 0 ? '#26b460' : '#e05252',
+              backgroundColor: value >= 0 ? '#26b460' : '#e05252'
+            };
+          }
+        }
+      }
+    },
+
+    scales: {
+      x: {
+        grid: {color: 'rgba(15,31,22,.04)', drawBorder: false},
+        ticks: {
+          color: '#6f8177',
+          font: {size: 11, weight: '600'},
+          autoSkip: false,
+          maxRotation: 0,
+          minRotation: 0,
+          padding: 10
+        }
+      },
+
+      y: {
+        min: visualMin,
+        max: visualMax,
+        grid: {color: 'rgba(15,31,22,.05)', drawBorder: false},
+        ticks: {
+          color: '#6f8177',
+          font: {size: 12},
+          maxTicksLimit: 8,
+          callback: (value) => moneyFullNoDecimals(value)
+        }
+      }
+    }
+  };
+});
+
+const captacionesHistoricoRows = computed(() => {
+  const rows = [...(captacionesHistorico.value || [])];
+
+  return rows
+      .map((row) => ({
+        periodo: toPeriodYYYYMM(row.fecha),
+
+        ejecutadaCaptaciones: Number(row.ejecutadaCaptaciones || 0),
+        presupuestadaCaptaciones: Number(row.presupuestadaCaptaciones || 0),
+
+        ejecutadaVista: Number(row.ejecutadaVista || 0),
+        presupuestadaVista: Number(row.presupuestadaVista || 0),
+
+        ejecutadaAhorros: Number(row.ejecutadaAhorros || 0),
+        presupuestadaAhorros: Number(row.presupuestadaAhorros || 0),
+
+        ejecutadaPlazo: Number(row.ejecutadaPlazo || 0),
+        presupuestadaPlazo: Number(row.presupuestadaPlazo || 0)
+      }))
+      .filter((row) => row.periodo && row.periodo !== 'Último periodo disponible')
+      .sort((a, b) => String(a.periodo).localeCompare(String(b.periodo)));
+});
+
+const captacionesHistoricoChart = computed(() => {
+  const rows = captacionesHistoricoRows.value;
+
+  const configByProducto = {
+    TODOS: {
+      ejecutadoField: 'ejecutadaCaptaciones',
+      presupuestoField: 'presupuestadaCaptaciones',
+      labelEjecutado: 'Captación ejecutada',
+      labelPresupuesto: 'Presupuesto captaciones'
+    },
+    VISTA: {
+      ejecutadoField: 'ejecutadaVista',
+      presupuestoField: 'presupuestadaVista',
+      labelEjecutado: 'Vista ejecutada',
+      labelPresupuesto: 'Presupuesto vista'
+    },
+    AHORROS: {
+      ejecutadoField: 'ejecutadaAhorros',
+      presupuestoField: 'presupuestadaAhorros',
+      labelEjecutado: 'Ahorros ejecutado',
+      labelPresupuesto: 'Presupuesto ahorros'
+    },
+    PLAZO: {
+      ejecutadoField: 'ejecutadaPlazo',
+      presupuestoField: 'presupuestadaPlazo',
+      labelEjecutado: 'DPF / Plazo ejecutado',
+      labelPresupuesto: 'Presupuesto DPF / Plazo'
+    }
+  };
+
+  const config = configByProducto[captacionHistoricoProducto.value] || configByProducto.TODOS;
+
+  const ejecutadoData = rows.map((row) => Number(row[config.ejecutadoField] || 0));
+  const presupuestoData = rows.map((row) => Number(row[config.presupuestoField] || 0));
+  const diferenciaData = ejecutadoData.map((value, index) => value - Number(presupuestoData[index] || 0));
+  const cumplimientoData = ejecutadoData.map((value, index) => {
+    const presupuesto = Number(presupuestoData[index] || 0);
+    return presupuesto > 0 ? (value / presupuesto) * 100 : null;
+  });
+
+  return {
+    labels: rows.map((row) => row.periodo),
+    datasets: [
+      {
+        label: config.labelEjecutado,
+        data: ejecutadoData,
+        borderColor: '#26b460',
+        backgroundColor: 'rgba(38,180,96,.14)',
+        borderWidth: 3,
+        tension: 0.35,
+        fill: true,
+        pointRadius: 4,
+        pointHoverRadius: 8,
+        pointBackgroundColor: '#26b460',
+        pointBorderColor: '#ffffff',
+        pointBorderWidth: 2,
+        metaRows: rows,
+        metaType: 'money'
+      },
+      {
+        label: config.labelPresupuesto,
+        data: presupuestoData,
+        borderColor: '#8b5cf6',
+        backgroundColor: 'rgba(139,92,246,.10)',
+        borderWidth: 3,
+        tension: 0.35,
+        fill: false,
+        pointRadius: 4,
+        pointHoverRadius: 8,
+        pointBackgroundColor: '#8b5cf6',
+        pointBorderColor: '#ffffff',
+        pointBorderWidth: 2,
+        metaRows: rows,
+        metaType: 'money'
+      },
+      {
+        label: 'Cumplimiento %',
+        data: cumplimientoData,
+        borderColor: '#f59e0b',
+        backgroundColor: 'transparent',
+        borderWidth: 2.5,
+        borderDash: [6, 4],
+        tension: 0.35,
+        fill: false,
+        pointRadius: 3,
+        pointHoverRadius: 7,
+        pointBackgroundColor: '#f59e0b',
+        yAxisID: 'y1',
+        metaRows: rows,
+        metaType: 'percent'
+      },
+      {
+        label: 'Diferencia',
+        data: diferenciaData,
+        borderColor: 'rgba(0,0,0,0)',
+        backgroundColor: 'rgba(0,0,0,0)',
+        borderWidth: 0,
+        pointRadius: 0,
+        pointHoverRadius: 0,
+        showLine: false,
+        hidden: true,
+        metaRows: rows,
+        metaType: 'hidden'
+      }
+    ]
+  };
+});
+
+const captacionesHistoricoLineOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  animation: { duration: 600, easing: 'easeOutQuart' },
+  interaction: {
+    mode: 'index',
+    intersect: false
+  },
   plugins: {
     legend: {
       display: true,
@@ -526,64 +966,60 @@ const portadaFlowChartOptions = {
     },
     tooltip: {
       ...tooltipBase,
+      filter: (tooltipItem) => tooltipItem.dataset.label !== 'Diferencia',
       callbacks: {
         label: (ctx) => {
-          const value = Number(ctx.parsed.y || ctx.raw || 0);
+          const value = Number(ctx.raw || 0);
 
-          if (ctx.dataset.label === 'Diferencia') {
-            return ` Diferencia: ${signedMoneyFullNoDecimals(value)}`;
+          if (ctx.dataset.label === 'Cumplimiento %') {
+            return ` Cumplimiento: ${Number(value).toFixed(2)}%`;
           }
 
           return ` ${ctx.dataset.label}: ${moneyFullNoDecimals(value)}`;
         },
         afterBody: (items) => {
-          const stockItem = items.find((item) => item.dataset.label === 'Stock ejecutado');
-          const presupuestoItem = items.find((item) => item.dataset.label === 'Presupuesto');
+          const stockItem = items.find((item) =>
+              !String(item.dataset.label || '').includes('Presupuesto') &&
+              item.dataset.label !== 'Cumplimiento %'
+          );
+
+          const presupuestoItem = items.find((item) =>
+              String(item.dataset.label || '').includes('Presupuesto')
+          );
+
+          const cumplimientoItem = items.find((item) =>
+              item.dataset.label === 'Cumplimiento %'
+          );
 
           if (!stockItem || !presupuestoItem) return [];
 
-          const stock = Number(stockItem.raw || 0);
+          const ejecutado = Number(stockItem.raw || 0);
           const presupuesto = Number(presupuestoItem.raw || 0);
-          const diferencia = stock - presupuesto;
-          const cumplimiento = presupuesto > 0 ? (stock / presupuesto) * 100 : null;
+          const diferencia = ejecutado - presupuesto;
+          const cumplimiento = cumplimientoItem?.raw ?? (
+              presupuesto > 0 ? (ejecutado / presupuesto) * 100 : null
+          );
 
           return [
             '',
             `Diferencia: ${signedMoneyFullNoDecimals(diferencia)}`,
-            `Cumplimiento: ${cumplimiento === null ? 'N/A' : `${cumplimiento.toFixed(2)}%`}`
+            `Cumplimiento monto: ${moneyFullNoDecimals(ejecutado)} / ${moneyFullNoDecimals(presupuesto)}`,
+            `Cumplimiento %: ${
+                cumplimiento === null || cumplimiento === undefined
+                    ? 'N/A'
+                    : `${Number(cumplimiento).toFixed(2)}%`
+            }`
           ];
-        },
-        labelColor: (ctx) => {
-          if (ctx.dataset.label === 'Stock ejecutado') {
-            return {
-              borderColor: '#26b460',
-              backgroundColor: '#26b460'
-            };
-          }
-
-          if (ctx.dataset.label === 'Presupuesto') {
-            return {
-              borderColor: '#8b5cf6',
-              backgroundColor: '#8b5cf6'
-            };
-          }
-
-          const value = Number(ctx.raw || 0);
-
-          return {
-            borderColor: value >= 0 ? '#26b460' : '#e05252',
-            backgroundColor: value >= 0 ? '#26b460' : '#e05252'
-          };
         }
       }
     }
   },
   scales: {
     x: {
-      grid: {color: 'rgba(15,31,22,.04)', drawBorder: false},
+      grid: { color: 'rgba(15,31,22,.04)', drawBorder: false },
       ticks: {
         color: '#6f8177',
-        font: {size: 11, weight: '600'},
+        font: { size: 11, weight: '600' },
         autoSkip: false,
         maxRotation: 0,
         minRotation: 0,
@@ -591,88 +1027,25 @@ const portadaFlowChartOptions = {
       }
     },
     y: {
-      grid: {color: 'rgba(15,31,22,.05)', drawBorder: false},
-      beginAtZero: false,
+      beginAtZero: true,
+      position: 'left',
+      grid: { color: 'rgba(15,31,22,.05)', drawBorder: false },
       ticks: {
         color: '#6f8177',
-        font: {size: 12},
-        maxTicksLimit: 12,
+        font: { size: 12 },
         callback: (value) => moneyFullNoDecimals(value)
       }
-    }
-  }
-};
-
-const pctChartOptions = {
-  ...chartOptions,
-  plugins: {
-    ...chartOptions.plugins,
-    tooltip: {
-      ...tooltipBase,
-      callbacks: {
-        label: (ctx) => ` ${ctx.dataset.label}: ${Number(ctx.parsed.y).toFixed(2)}%`
-      }
-    }
-  },
-  scales: {
-    x: chartOptions.scales.x,
-    y: {
-      ...chartOptions.scales.y,
+    },
+    y1: {
+      beginAtZero: true,
+      position: 'right',
+      grid: {
+        drawOnChartArea: false
+      },
       ticks: {
         color: '#6f8177',
-        font: {size: 12},
-        callback: (value) => `${Number(value).toFixed(1)}%`
-      }
-    }
-  }
-};
-
-const horizontalPctChartOptions = {
-  responsive: true,
-  maintainAspectRatio: false,
-  indexAxis: 'y',
-  plugins: {
-    legend: {display: false},
-    tooltip: {
-      ...tooltipBase,
-      callbacks: {
-        label: (ctx) => ` ${Number(ctx.parsed.x).toFixed(2)}%`
-      }
-    }
-  },
-  scales: {
-    x: {
-      grid: {color: 'rgba(15,31,22,.05)', drawBorder: false},
-      ticks: {
-        color: '#6f8177',
+        font: { size: 12 },
         callback: (value) => `${Number(value).toFixed(0)}%`
-      }
-    },
-    y: {
-      grid: {display: false, drawBorder: false},
-      ticks: {color: '#4a6355'}
-    }
-  }
-};
-
-const doughnutOptions = {
-  responsive: true,
-  maintainAspectRatio: false,
-  animation: {duration: 700, easing: 'easeOutQuart'},
-  plugins: {
-    legend: {
-      position: 'bottom',
-      labels: {
-        color: '#4a6355',
-        boxWidth: 12,
-        padding: 16,
-        usePointStyle: true
-      }
-    },
-    tooltip: {
-      ...tooltipBase,
-      callbacks: {
-        label: (ctx) => ` ${ctx.label}: $${Number(ctx.parsed).toLocaleString('en-US')}M`
       }
     }
   }
@@ -714,15 +1087,330 @@ const scatterOptions = {
 // Computed de gráficos y datos derivados
 // ─────────────────────────────────────────────────────────────
 
+function normalizeTipoDato(value) {
+  return String(value || '')
+      .trim()
+      .toUpperCase();
+}
+
+function projectionDateKey(row) {
+  if (row?.fecha) {
+    const d = new Date(row.fecha);
+
+    if (!Number.isNaN(d.getTime())) {
+      return d.toISOString().slice(0, 10);
+    }
+
+    return String(row.fecha);
+  }
+
+  return String(row?.month || '');
+}
+
+function projectionMergeKey(row) {
+  return [
+    projectionDateKey(row),
+    normalizeTipoDato(row.tipoDato),
+    row.producto || row.PRODUCTO || '',
+    row.agencia || row.AGENCIA || ''
+  ].join('|');
+}
+
+function mergeProjectionScenarios(desembolsoRows = [], amortizacionRows = []) {
+  const amortMap = new Map();
+
+  amortizacionRows.forEach((row) => {
+    amortMap.set(projectionMergeKey(row), Number(row.amortizacion || 0));
+  });
+
+  return (desembolsoRows || []).map((row) => {
+    const key = projectionMergeKey(row);
+
+    return {
+      ...row,
+      amortizacion: amortMap.has(key)
+          ? amortMap.get(key)
+          : Number(row.amortizacion || 0)
+    };
+  });
+}
+
+async function fetchMergedProjection(params = {}) {
+  const [desembolsoRes, amortizacionRes] = await Promise.all([
+    api.projection(desembolsoScenario.value, params),
+    api.projection(amortizacionScenario.value, params)
+  ]);
+
+  return mergeProjectionScenarios(desembolsoRes.data, amortizacionRes.data);
+}
+
+async function fetchMergedProjectionByProduct(product) {
+  const [desembolsoRes, amortizacionRes] = await Promise.all([
+    api.projectionByProduct(desembolsoScenario.value, product),
+    api.projectionByProduct(amortizacionScenario.value, product)
+  ]);
+
+  return mergeProjectionScenarios(desembolsoRes.data, amortizacionRes.data);
+}
+
+function projectionLabel(row) {
+  if (row?.month) return row.month;
+
+  if (row?.fecha) {
+    const d = new Date(row.fecha);
+
+    if (!Number.isNaN(d.getTime())) {
+      return new Intl.DateTimeFormat('es-BO', {month: 'short'}).format(d);
+    }
+  }
+
+  return String(row?.fecha || '');
+}
+
+function sortProjectionRows(rows = []) {
+  return [...rows].sort((a, b) => {
+    const da = new Date(a.fecha || a.month);
+    const db = new Date(b.fecha || b.month);
+
+    if (!Number.isNaN(da.getTime()) && !Number.isNaN(db.getTime())) {
+      return da - db;
+    }
+
+    return String(a.month || '').localeCompare(String(b.month || ''));
+  });
+}
+
+function buildProjectionAxis(rows = []) {
+  const sorted = sortProjectionRows(rows);
+  const map = new Map();
+
+  sorted.forEach((row) => {
+    const key = projectionDateKey(row);
+
+    if (!map.has(key)) {
+      map.set(key, {
+        key,
+        label: projectionLabel(row)
+      });
+    }
+  });
+
+  return Array.from(map.values());
+}
+
+function valueByTipoAndDate(rows = [], tipoDato, field, axis = []) {
+  const targetTipo = normalizeTipoDato(tipoDato);
+
+  const map = new Map();
+
+  rows.forEach((row) => {
+    if (normalizeTipoDato(row.tipoDato) !== targetTipo) return;
+
+    map.set(projectionDateKey(row), Number(row[field] || 0));
+  });
+
+  return axis.map((item) => map.has(item.key) ? map.get(item.key) : null);
+}
+
+const projectionSelectedProductBase = computed(() => {
+  const selected = selectedProjProducts.value || [];
+  const allRows = kpisProductData.value || [];
+
+  const rows =
+      selected.length > 0
+          ? allRows.filter((row) => selected.includes(row.producto))
+          : allRows;
+
+  const stockActual = rows.reduce((acc, row) => acc + Number(row.stock || 0), 0);
+  const stockBase = rows.reduce((acc, row) => acc + Number(row.stockBase || 0), 0);
+  const presupuesto = rows.reduce((acc, row) => acc + Number(row.presupuesto || 0), 0);
+
+  return {
+    rows,
+    stockActual,
+    stockBase,
+    presupuesto
+  };
+});
+
+const projectionYearSummary = computed(() => {
+  const rowsSource = [];
+
+  if (selectedProjProducts.value.length > 0) {
+    selectedProjProducts.value.forEach((product) => {
+      const rows = projectionProductData.value?.[product] || [];
+
+      rows.forEach((row) => {
+        rowsSource.push({
+          ...row,
+          producto: product
+        });
+      });
+    });
+  } else {
+    (projection.value || []).forEach((row) => {
+      rowsSource.push(row);
+    });
+  }
+
+  const rows2026 = rowsSource.filter((row) =>
+      String(row.fecha || row.month || '').startsWith('2026')
+  );
+
+  const realRows = rows2026.filter((row) =>
+      normalizeTipoDato(row.tipoDato) === 'HISTORICO'
+  );
+
+  const projectedRows = rows2026.filter((row) =>
+      normalizeTipoDato(row.tipoDato) === 'PROYECCION'
+  );
+
+  const desembolsoReal = realRows.reduce(
+      (acc, row) => acc + Number(row.desembolso || 0) * 1000,
+      0
+  );
+
+  const desembolsoProyectado = projectedRows.reduce(
+      (acc, row) => acc + Number(row.desembolso || 0) * 1000,
+      0
+  );
+
+  const amortizacionReal = realRows.reduce(
+      (acc, row) => acc + Number(row.amortizacion || 0) * 1000,
+      0
+  );
+
+  const amortizacionProyectada = projectedRows.reduce(
+      (acc, row) => acc + Number(row.amortizacion || 0) * 1000,
+      0
+  );
+
+  const totalDesembolsoAnio = desembolsoReal + desembolsoProyectado;
+  const totalAmortizacionAnio = amortizacionReal + amortizacionProyectada;
+
+  const stockActual = Number(projectionSelectedProductBase.value.stockActual || 0);
+  const stockBase = Number(projectionSelectedProductBase.value.stockBase || 0);
+  const presupuesto = Number(projectionSelectedProductBase.value.presupuesto || 0);
+
+  const stockFinAnio =
+      stockActual + desembolsoProyectado - amortizacionProyectada;
+
+  const crecimientoVsDicMonto = stockFinAnio - stockBase;
+  const crecimientoVsDicPct =
+      stockBase > 0 ? ((stockFinAnio / stockBase) - 1) * 100 : null;
+
+  const diferenciaVsPresupuesto = stockFinAnio - presupuesto;
+  const cumplimientoVsPresupuesto =
+      presupuesto > 0 ? (stockFinAnio / presupuesto) * 100 : null;
+
+  return {
+    stockActual,
+    stockBase,
+    presupuesto,
+
+    desembolsoReal,
+    desembolsoProyectado,
+    amortizacionReal,
+    amortizacionProyectada,
+
+    totalDesembolsoAnio,
+    totalAmortizacionAnio,
+
+    stockFinAnio,
+    crecimientoVsDicMonto,
+    crecimientoVsDicPct,
+    diferenciaVsPresupuesto,
+    cumplimientoVsPresupuesto
+  };
+});
+
 const projectionChart = computed(() => {
-  const cutoff = 3;
   const allDatasets = [];
 
+  // 1. Extraer YYYYMM
+  const getLabelYYYYMM = (str) => {
+    const s = String(str || '');
+    if (s.length >= 7) return s.substring(0, 4) + s.substring(5, 7);
+    return s;
+  };
+
+  // 2. Procesar, unificar duplicados y conectar líneas
+  const processSeries = (rawData) => {
+    // 1. Filtrar solo año 2026
+    const filtered = (rawData || []).filter(d => String(d.fecha || d.month).startsWith('2026'));
+
+    const map = new Map();
+    filtered.forEach(d => {
+      const lbl = getLabelYYYYMM(d.fecha || d.month);
+      if (!map.has(lbl)) {
+        map.set(lbl, {
+          label: lbl,
+          valHistDes: 0, valProjDes: 0,
+          valHistAmo: 0, valProjAmo: 0,
+          hasRealDes: false, // ¿Tiene desembolso real este mes?
+          hasRealAmo: false  // ¿Tiene amortización real este mes?
+        });
+      }
+
+      const item = map.get(lbl);
+      const mDes = Number(d.desembolso || 0) * 1000;
+      const mAmo = Number(d.amortizacion || 0) * 1000;
+      const tipo = String(d.tipoDato).toUpperCase();
+
+      if (tipo === 'HISTORICO') {
+        // Procesar Desembolso Histórico
+        if (mDes > 0) {
+          item.valHistDes += mDes;
+          item.hasRealDes = true;
+        }
+        // Procesar Amortización Histórica
+        if (mAmo > 0) {
+          item.valHistAmo += mAmo;
+          item.hasRealAmo = true;
+        }
+      } else {
+        // Procesar Proyecciones
+        item.valProjDes += mDes;
+        item.valProjAmo += mAmo;
+      }
+    });
+
+    const sorted = Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
+    const labels = sorted.map(d => d.label);
+
+    // 2. Identificar puntos de corte INDEPENDIENTES
+    let lastRealIdxDes = -1;
+    let lastRealIdxAmo = -1;
+
+    sorted.forEach((d, i) => {
+      if (d.hasRealDes) lastRealIdxDes = i;
+      if (d.hasRealAmo) lastRealIdxAmo = i;
+    });
+
+    // 3. Construir series de DESEMBOLSO (Usa su propio índice)
+    const realD = sorted.map((d, i) => i <= lastRealIdxDes ? Math.round(d.valHistDes) : null);
+    const projD = sorted.map((d, i) => {
+      if (i === lastRealIdxDes) return Math.round(d.valHistDes);
+      if (i > lastRealIdxDes) return Math.round(d.valProjDes);
+      return null;
+    });
+
+    // 4. Construir series de AMORTIZACIÓN (Usa su propio índice - detectará Mayo)
+    const realA = sorted.map((d, i) => i <= lastRealIdxAmo ? Math.round(d.valHistAmo) : null);
+    const projA = sorted.map((d, i) => {
+      // Si Mayo es el último real, aquí se conectará con el valor real de Mayo
+      if (i === lastRealIdxAmo) return Math.round(d.valHistAmo);
+      // Empezará a mostrar proyección desde Junio
+      if (i > lastRealIdxAmo) return Math.round(d.valProjAmo);
+      return null;
+    });
+
+    return {labels, realD, projD, realA, projA};
+  };
+
+  // 3. Generar Datasets
   if (selectedProjProducts.value.length === 0) {
-    const realD = projection.value.map((d, i) => i <= cutoff ? d.desembolso : null);
-    const projD = projection.value.map((d, i) => i >= cutoff ? d.desembolso : null);
-    const realA = projection.value.map((d, i) => i <= cutoff ? d.amortizacion : null);
-    const projA = projection.value.map((d, i) => i >= cutoff ? d.amortizacion : null);
+    const {labels, realD, projD, realA, projA} = processSeries(projection.value);
 
     allDatasets.push(
         {
@@ -734,7 +1422,6 @@ const projectionChart = computed(() => {
           tension: 0.4,
           pointRadius: 4,
           pointBackgroundColor: '#26b460',
-          spanGaps: false,
           fill: true
         },
         {
@@ -747,7 +1434,6 @@ const projectionChart = computed(() => {
           tension: 0.4,
           pointRadius: 3,
           pointBackgroundColor: '#26b460',
-          spanGaps: false,
           fill: false
         },
         {
@@ -759,7 +1445,6 @@ const projectionChart = computed(() => {
           tension: 0.4,
           pointRadius: 4,
           pointBackgroundColor: '#e05252',
-          spanGaps: false,
           fill: false
         },
         {
@@ -772,19 +1457,27 @@ const projectionChart = computed(() => {
           tension: 0.4,
           pointRadius: 3,
           pointBackgroundColor: '#e05252',
-          spanGaps: false,
           fill: false
         }
     );
-  } else {
-    selectedProjProducts.value.forEach((prod, i) => {
-      const data = projectionProductData.value[prod] || [];
-      if (!data.length) return;
 
-      const realD = data.map((d, idx) => idx <= cutoff ? d.desembolso : null);
-      const projD = data.map((d, idx) => idx >= cutoff ? d.desembolso : null);
-      const realA = data.map((d, idx) => idx <= cutoff ? d.amortizacion : null);
-      const projA = data.map((d, idx) => idx >= cutoff ? d.amortizacion : null);
+    if (chartFilters.value.projectionMetric === 'DESEMBOLSOS') return {
+      labels,
+      datasets: allDatasets.filter(d => d.label.includes('Desemb'))
+    };
+    if (chartFilters.value.projectionMetric === 'AMORTIZACION') return {
+      labels,
+      datasets: allDatasets.filter(d => d.label.includes('Amort'))
+    };
+    return {labels, datasets: allDatasets};
+
+  } else {
+    let globalLabels = [];
+
+    selectedProjProducts.value.forEach((prod, i) => {
+      const {labels, realD, projD, realA, projA} = processSeries(projectionProductData.value[prod]);
+      if (labels.length > globalLabels.length) globalLabels = labels;
+
       const colorD = PALETTE[(i * 2) % PALETTE.length];
       const colorA = PALETTE[(i * 2 + 1) % PALETTE.length];
 
@@ -798,7 +1491,6 @@ const projectionChart = computed(() => {
             tension: 0.4,
             pointRadius: 3,
             pointBackgroundColor: colorD,
-            spanGaps: false,
             fill: false
           },
           {
@@ -811,7 +1503,6 @@ const projectionChart = computed(() => {
             tension: 0.4,
             pointRadius: 2,
             pointBackgroundColor: colorD,
-            spanGaps: false,
             fill: false
           },
           {
@@ -823,7 +1514,6 @@ const projectionChart = computed(() => {
             tension: 0.4,
             pointRadius: 3,
             pointBackgroundColor: colorA,
-            spanGaps: false,
             fill: false
           },
           {
@@ -836,26 +1526,21 @@ const projectionChart = computed(() => {
             tension: 0.4,
             pointRadius: 2,
             pointBackgroundColor: colorA,
-            spanGaps: false,
             fill: false
           }
       );
     });
+
+    if (chartFilters.value.projectionMetric === 'DESEMBOLSOS') return {
+      labels: globalLabels,
+      datasets: allDatasets.filter(d => d.label.includes('Desemb'))
+    };
+    if (chartFilters.value.projectionMetric === 'AMORTIZACION') return {
+      labels: globalLabels,
+      datasets: allDatasets.filter(d => d.label.includes('Amort'))
+    };
+    return {labels: globalLabels, datasets: allDatasets};
   }
-
-  const labels = projection.value.length
-      ? projection.value.map((d) => d.month)
-      : ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-
-  if (chartFilters.value.projectionMetric === 'DESEMBOLSOS') {
-    return {labels, datasets: allDatasets.filter((d) => d.label.includes('Desemb'))};
-  }
-
-  if (chartFilters.value.projectionMetric === 'AMORTIZACION') {
-    return {labels, datasets: allDatasets.filter((d) => d.label.includes('Amort'))};
-  }
-
-  return {labels, datasets: allDatasets};
 });
 
 const flowRows = computed(() => {
@@ -965,6 +1650,303 @@ const marketVisualRows = computed(() =>
         item.segmentacioncredito === chartFilters.value.marketProduct
     )
 );
+const sharedPortfolioTotals = computed(() => {
+  const rows = sharedPortfolio.value || [];
+
+  const clientesCompartidos = rows.reduce((acc, row) => acc + Number(row.clientesCompartidos || 0), 0);
+  const bnb = rows.reduce((acc, row) => acc + Number(row.bnb || 0), 0);
+  const otrosBancos = rows.reduce((acc, row) => acc + Number(row.otrosBancos || 0), 0);
+  const totalCompartido = bnb + otrosBancos;
+
+  return {
+    clientesCompartidos,
+    bnb,
+    otrosBancos,
+    totalCompartido,
+    participacionBNBPct: totalCompartido > 0 ? (bnb * 100) / totalCompartido : null,
+    participacionOtrosPct: totalCompartido > 0 ? (otrosBancos * 100) / totalCompartido : null,
+    potencialCompra: otrosBancos
+  };
+});
+
+const sharedPortfolioBankTotals = computed(() => {
+  const bankKeys = ['BIS', 'BCR', 'BEC', 'BIE', 'BGA', 'BME', 'BSO', 'OTRO'];
+
+  return bankKeys
+      .map((bank) => {
+        const key = bank.toLowerCase();
+
+        const monto = (sharedPortfolio.value || []).reduce(
+            (acc, row) => acc + Number(row[key] || 0),
+            0
+        );
+
+        const total = sharedPortfolioTotals.value.otrosBancos;
+
+        return {
+          banco: bank,
+          monto,
+          participacionPct: total > 0 ? (monto * 100) / total : null
+        };
+      })
+      .filter((item) => item.monto > 0)
+      .sort((a, b) => Number(b.monto || 0) - Number(a.monto || 0));
+});
+
+const sharedPortfolioAgencyRows = computed(() => {
+  const grouped = new Map();
+
+  (sharedPortfolio.value || []).forEach((row) => {
+    const key = `${row.sucursal || 'Sin sucursal'}|${row.codAgencia || 'N/D'}|${row.nombreAgencia || 'N/D'}`;
+
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        sucursal: row.sucursal || 'Sin sucursal',
+        codAgencia: row.codAgencia || 'N/D',
+        nombreAgencia: row.nombreAgencia || 'N/D',
+        clientesCompartidos: 0,
+        bnb: 0,
+        otrosBancos: 0,
+        totalCompartido: 0
+      });
+    }
+
+    const item = grouped.get(key);
+
+    item.clientesCompartidos += Number(row.clientesCompartidos || 0);
+    item.bnb += Number(row.bnb || 0);
+    item.otrosBancos += Number(row.otrosBancos || 0);
+    item.totalCompartido += Number(row.totalCompartido || 0);
+  });
+
+  return Array.from(grouped.values())
+      .map((item) => ({
+        ...item,
+        participacionBNBPct: item.totalCompartido > 0 ? (item.bnb * 100) / item.totalCompartido : null,
+        participacionOtrosPct: item.totalCompartido > 0 ? (item.otrosBancos * 100) / item.totalCompartido : null,
+        prioridad:
+            item.otrosBancos >= 5_000_000 ? 'Alta' :
+                item.otrosBancos >= 1_000_000 ? 'Media' : 'Baja'
+      }))
+      .sort((a, b) => Number(b.otrosBancos || 0) - Number(a.otrosBancos || 0));
+});
+
+const sharedPortfolioSegmentRows = computed(() => {
+  const grouped = new Map();
+
+  (sharedPortfolio.value || []).forEach((row) => {
+    const segmento = row.segmento || 'N/D';
+
+    if (!grouped.has(segmento)) {
+      grouped.set(segmento, {
+        segmento,
+        clientesCompartidos: 0,
+        bnb: 0,
+        otrosBancos: 0,
+        totalCompartido: 0
+      });
+    }
+
+    const item = grouped.get(segmento);
+
+    item.clientesCompartidos += Number(row.clientesCompartidos || 0);
+    item.bnb += Number(row.bnb || 0);
+    item.otrosBancos += Number(row.otrosBancos || 0);
+    item.totalCompartido += Number(row.totalCompartido || 0);
+  });
+
+  return Array.from(grouped.values())
+      .map((item) => ({
+        ...item,
+        participacionOtrosPct: item.totalCompartido > 0 ? (item.otrosBancos * 100) / item.totalCompartido : null
+      }))
+      .sort((a, b) => Number(b.otrosBancos || 0) - Number(a.otrosBancos || 0));
+});
+function matrixCellClass(value) {
+  const n = Number(value || 0);
+
+  if (n >= 5_000_000) return 'matrix-high';
+  if (n >= 1_000_000) return 'matrix-mid';
+  if (n > 0) return 'matrix-low';
+
+  return 'matrix-empty';
+}
+const sharedPortfolioMatrix = computed(() => {
+  const rows = sharedPortfolio.value || [];
+
+  const bankKeys = [
+    { key: 'bis', banco: 'BIS' },
+    { key: 'bcr', banco: 'BCR' },
+    { key: 'bec', banco: 'BEC' },
+    { key: 'bie', banco: 'BIE' },
+    { key: 'bga', banco: 'BGA' },
+    { key: 'bme', banco: 'BME' },
+    { key: 'bso', banco: 'BSO' },
+    { key: 'otro', banco: 'OTRO' }
+  ];
+
+  const segments = Array.from(
+      new Set(
+          rows
+              .map((row) => row.segmento || 'N/D')
+              .filter(Boolean)
+      )
+  ).sort((a, b) => a.localeCompare(b));
+
+  const segmentTotals = {};
+  const bankTotals = {};
+  const matrixMap = new Map();
+
+  bankKeys.forEach((bank) => {
+    matrixMap.set(bank.banco, {
+      banco: bank.banco,
+      key: bank.key,
+      segmentos: {},
+      totalBanco: 0,
+      participacionTotalPct: 0
+    });
+
+    bankTotals[bank.banco] = 0;
+  });
+
+  segments.forEach((segment) => {
+    segmentTotals[segment] = 0;
+  });
+
+  rows.forEach((row) => {
+    const segment = row.segmento || 'N/D';
+
+    bankKeys.forEach((bank) => {
+      const monto = Number(row[bank.key] || 0);
+
+      const bankRow = matrixMap.get(bank.banco);
+
+      if (!bankRow.segmentos[segment]) {
+        bankRow.segmentos[segment] = {
+          segmento: segment,
+          monto: 0,
+          participacionSegmentoPct: null
+        };
+      }
+
+      bankRow.segmentos[segment].monto += monto;
+      bankRow.totalBanco += monto;
+
+      bankTotals[bank.banco] += monto;
+      segmentTotals[segment] += monto;
+    });
+  });
+
+  const totalGeneral = Object.values(bankTotals).reduce(
+      (acc, value) => acc + Number(value || 0),
+      0
+  );
+
+  const resultRows = Array.from(matrixMap.values())
+      .map((bankRow) => {
+        segments.forEach((segment) => {
+          const monto = Number(bankRow.segmentos[segment]?.monto || 0);
+          const totalSegmento = Number(segmentTotals[segment] || 0);
+
+          bankRow.segmentos[segment] = {
+            ...bankRow.segmentos[segment],
+            monto,
+            participacionSegmentoPct:
+                totalSegmento > 0 ? (monto * 100) / totalSegmento : null
+          };
+        });
+
+        return {
+          ...bankRow,
+          participacionTotalPct:
+              totalGeneral > 0 ? (bankRow.totalBanco * 100) / totalGeneral : 0
+        };
+      })
+      .filter((row) => Number(row.totalBanco || 0) > 0)
+      .sort((a, b) => Number(b.totalBanco || 0) - Number(a.totalBanco || 0));
+
+  return {
+    segments,
+    rows: resultRows,
+    segmentTotals,
+    totalGeneral
+  };
+});
+
+const sharedPortfolioBankChart = computed(() => ({
+  labels: sharedPortfolioBankTotals.value.map((item) => item.banco),
+  datasets: [
+    {
+      label: 'Monto compartido otros bancos',
+      data: sharedPortfolioBankTotals.value.map((item) => item.monto),
+      backgroundColor: '#8b5cf6',
+      borderRadius: 8
+    }
+  ]
+}));
+
+const sharedPortfolioDonutChart = computed(() => ({
+  labels: ['BNB', 'Otros bancos'],
+  datasets: [
+    {
+      data: [
+        sharedPortfolioTotals.value.bnb,
+        sharedPortfolioTotals.value.otrosBancos
+      ],
+      backgroundColor: ['#26b460', '#8b5cf6'],
+      borderColor: '#ffffff',
+      borderWidth: 3,
+      hoverOffset: 8
+    }
+  ]
+}));
+
+const sharedPortfolioSegmentChart = computed(() => ({
+  labels: sharedPortfolioSegmentRows.value.map((item) => item.segmento),
+  datasets: [
+    {
+      label: 'Potencial compra deuda',
+      data: sharedPortfolioSegmentRows.value.map((item) => item.otrosBancos),
+      backgroundColor: '#26b460',
+      borderRadius: 8
+    }
+  ]
+}));
+
+const sharedPortfolioBarOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  indexAxis: 'y',
+  plugins: {
+    legend: {display: false},
+    tooltip: {
+      ...tooltipBase,
+      callbacks: {
+        label: (ctx) => {
+          const value = Number(ctx.raw || 0);
+          return ` ${ctx.dataset.label}: ${moneyFullNoDecimals(value)}`;
+        }
+      }
+    }
+  },
+  scales: {
+    x: {
+      beginAtZero: true,
+      grid: {color: 'rgba(15,31,22,.05)', drawBorder: false},
+      ticks: {
+        color: '#6f8177',
+        callback: (value) => moneyFullNoDecimals(value)
+      }
+    },
+    y: {
+      grid: {display: false, drawBorder: false},
+      ticks: {
+        color: '#4a6355',
+        font: {size: 11, weight: '600'}
+      }
+    }
+  }
+};
 
 const marketChart = computed(() => ({
   labels: marketVisualRows.value.map((item) => item.segmentacioncredito),
@@ -983,8 +1965,8 @@ const scatterChart = computed(() => ({
     {
       label: 'Productos',
       data: filteredMarketShare.value.map((item) => ({
-        x: Number(item.montoSistema || 0) / 1000 / USD_TO_BOB,
-        y: Number(item.crecimientoTotal || 0) / 1000 / USD_TO_BOB,
+        x: Number(item.montoSistema || 0),
+        y: Number(item.crecimientoTotal || 0),
         stockOriginal: item.montoSistema,
         crecimientoOriginal: item.crecimientoTotal,
         product: item.segmentacioncredito,
@@ -1065,6 +2047,335 @@ const benchmarkMatrix = computed(() => {
   matrix.sort((a, b) => Number(b.rowGrowth || 0) - Number(a.rowGrowth || 0));
 
   return {productos, matrix};
+});
+
+const pdRiskTotals = computed(() => {
+  const rows = pdRisk.value || [];
+
+  const alto = rows.reduce((acc, row) => acc + Number(row.alto || 0), 0);
+  const media = rows.reduce((acc, row) => acc + Number(row.media || 0), 0);
+  const baja = rows.reduce((acc, row) => acc + Number(row.baja || 0), 0);
+  const total = alto + media + baja;
+
+  return {
+    alto,
+    media,
+    baja,
+    total,
+    altoPct: total > 0 ? (alto * 100) / total : null,
+    mediaPct: total > 0 ? (media * 100) / total : null,
+    bajaPct: total > 0 ? (baja * 100) / total : null
+  };
+});
+
+const pdRiskByProduct = computed(() => {
+  const grouped = new Map();
+
+  (pdRisk.value || []).forEach((row) => {
+    const producto = row.producto || 'N/D';
+
+    if (!grouped.has(producto)) {
+      grouped.set(producto, {
+        producto,
+        alto: 0,
+        media: 0,
+        baja: 0,
+        total: 0
+      });
+    }
+
+    const item = grouped.get(producto);
+
+    item.alto += Number(row.alto || 0);
+    item.media += Number(row.media || 0);
+    item.baja += Number(row.baja || 0);
+    item.total += Number(row.totalOperaciones || 0);
+  });
+
+  return Array.from(grouped.values())
+      .map((item) => ({
+        ...item,
+        altoPct: item.total > 0 ? (item.alto * 100) / item.total : null,
+        mediaPct: item.total > 0 ? (item.media * 100) / item.total : null,
+        bajaPct: item.total > 0 ? (item.baja * 100) / item.total : null
+      }))
+      .sort((a, b) => Number(b.alto || 0) - Number(a.alto || 0));
+});
+
+const pdRiskBySucursal = computed(() => {
+  const grouped = new Map();
+
+  (pdRisk.value || []).forEach((row) => {
+    const sucursal = row.sucursal || 'Sin sucursal';
+
+    if (!grouped.has(sucursal)) {
+      grouped.set(sucursal, {
+        sucursal,
+        alto: 0,
+        media: 0,
+        baja: 0,
+        total: 0
+      });
+    }
+
+    const item = grouped.get(sucursal);
+
+    item.alto += Number(row.alto || 0);
+    item.media += Number(row.media || 0);
+    item.baja += Number(row.baja || 0);
+    item.total += Number(row.totalOperaciones || 0);
+  });
+
+  return Array.from(grouped.values())
+      .map((item) => ({
+        ...item,
+        altoPct: item.total > 0 ? (item.alto * 100) / item.total : null
+      }))
+      .sort((a, b) => Number(b.alto || 0) - Number(a.alto || 0));
+});
+
+const pdRiskCriticalAgencies = computed(() =>
+    [...(pdRisk.value || [])]
+        .sort((a, b) => {
+          const altoCompare = Number(b.alto || 0) - Number(a.alto || 0);
+
+          if (altoCompare !== 0) {
+            return altoCompare;
+          }
+
+          return Number(b.media || 0) - Number(a.media || 0);
+        })
+        .slice(0, 15)
+);
+
+const pdRiskHistoryByPeriod = computed(() => {
+  const grouped = new Map();
+
+  (pdRiskHistory.value || []).forEach((row) => {
+    const periodo = toPeriodYYYYMM(row.fecha);
+
+    if (!grouped.has(periodo)) {
+      grouped.set(periodo, {
+        periodo,
+        alto: 0,
+        media: 0,
+        baja: 0,
+        total: 0,
+        productos: new Map()
+      });
+    }
+
+    const item = grouped.get(periodo);
+
+    const alto = Number(row.alto || 0);
+    const media = Number(row.media || 0);
+    const baja = Number(row.baja || 0);
+
+    item.alto += alto;
+    item.media += media;
+    item.baja += baja;
+    item.total += alto + media + baja;
+
+    const producto = row.producto || 'N/D';
+
+    if (!item.productos.has(producto)) {
+      item.productos.set(producto, {
+        producto,
+        alto: 0,
+        media: 0,
+        baja: 0,
+        total: 0
+      });
+    }
+
+    const prod = item.productos.get(producto);
+
+    prod.alto += alto;
+    prod.media += media;
+    prod.baja += baja;
+    prod.total += alto + media + baja;
+  });
+
+  return Array.from(grouped.values())
+      .map((item) => ({
+        ...item,
+        productos: Array.from(item.productos.values())
+            .sort((a, b) => Number(b.total || 0) - Number(a.total || 0))
+      }))
+      .sort((a, b) => String(a.periodo).localeCompare(String(b.periodo)));
+});
+
+const pdRiskHistoryChart = computed(() => ({
+  labels: pdRiskHistoryByPeriod.value.map((item) => item.periodo),
+  datasets: [
+    {
+      label: 'Alta probabilidad',
+      data: pdRiskHistoryByPeriod.value.map((item) => item.alto),
+      borderColor: '#e05252',
+      backgroundColor: 'rgba(224,82,82,.12)',
+      borderWidth: 3,
+      tension: 0.35,
+      fill: false,
+      pointRadius: 4,
+      pointHoverRadius: 7
+    },
+    {
+      label: 'Media probabilidad',
+      data: pdRiskHistoryByPeriod.value.map((item) => item.media),
+      borderColor: '#f59e0b',
+      backgroundColor: 'rgba(245,158,11,.12)',
+      borderWidth: 3,
+      tension: 0.35,
+      fill: false,
+      pointRadius: 4,
+      pointHoverRadius: 7
+    }
+  ]
+}));
+
+const pdRiskHistoryLineOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  animation: {duration: 600, easing: 'easeOutQuart'},
+  interaction: {
+    mode: 'index',
+    intersect: false
+  },
+  plugins: {
+    legend: {
+      display: true,
+      position: 'top',
+      labels: {
+        color: '#4a6355',
+        boxWidth: 12,
+        padding: 16,
+        usePointStyle: true
+      }
+    },
+    tooltip: {
+      ...tooltipBase,
+      callbacks: {
+        title: (items) => {
+          const periodo = items?.[0]?.label || 'N/D';
+          return `Periodo ${periodo}`;
+        },
+        label: (ctx) => {
+          const value = Number(ctx.raw || 0);
+          return ` ${ctx.dataset.label}: ${value.toLocaleString('en-US')} operaciones`;
+        },
+        afterBody: (items) => {
+          const first = items?.[0];
+
+          if (!first) return [];
+
+          const periodo = first.label;
+          const periodRow = pdRiskHistoryByPeriod.value.find((item) => item.periodo === periodo);
+
+          if (!periodRow) return [];
+
+          const lines = [
+            '',
+            `Total del periodo: ${Number(periodRow.total || 0).toLocaleString('en-US')} operaciones`,
+            'Distribución por producto:'
+          ];
+
+          periodRow.productos.slice(0, 8).forEach((prod) => {
+            lines.push(
+                `${prod.producto}: Alta ${Number(prod.alto || 0).toLocaleString('en-US')} | Media ${Number(prod.media || 0).toLocaleString('en-US')} | Baja ${Number(prod.baja || 0).toLocaleString('en-US')}`
+            );
+          });
+
+          if (periodRow.productos.length > 8) {
+            lines.push(`+${periodRow.productos.length - 8} productos adicionales`);
+          }
+
+          return lines;
+        }
+      }
+    }
+  },
+  scales: {
+    x: {
+      grid: {color: 'rgba(15,31,22,.04)', drawBorder: false},
+      ticks: {
+        color: '#6f8177',
+        font: {size: 11, weight: '600'},
+        autoSkip: false,
+        maxRotation: 0,
+        minRotation: 0,
+        padding: 10
+      }
+    },
+    y: {
+      beginAtZero: true,
+      grid: {color: 'rgba(15,31,22,.05)', drawBorder: false},
+      ticks: {
+        color: '#6f8177',
+        font: {size: 12},
+        callback: (value) => Number(value).toLocaleString('en-US')
+      }
+    }
+  }
+};
+
+const pdRiskSucursalChart = computed(() => ({
+  labels: pdRiskBySucursal.value.slice(0, 10).map((item) => item.sucursal),
+  datasets: [
+    {
+      label: 'Alta probabilidad',
+      data: pdRiskBySucursal.value.slice(0, 10).map((item) => item.alto),
+      backgroundColor: '#e05252',
+      borderRadius: 8
+    }
+  ]
+}));
+
+const pdRiskSucursalProductBreakdown = computed(() => {
+  const grouped = new Map();
+
+  (pdRisk.value || []).forEach((row) => {
+    const sucursal = row.sucursal || 'Sin sucursal';
+    const producto = row.producto || 'N/D';
+
+    if (!grouped.has(sucursal)) {
+      grouped.set(sucursal, new Map());
+    }
+
+    const productMap = grouped.get(sucursal);
+
+    if (!productMap.has(producto)) {
+      productMap.set(producto, {
+        producto,
+        alto: 0,
+        media: 0,
+        baja: 0,
+        total: 0
+      });
+    }
+
+    const item = productMap.get(producto);
+
+    item.alto += Number(row.alto || 0);
+    item.media += Number(row.media || 0);
+    item.baja += Number(row.baja || 0);
+    item.total += Number(row.totalOperaciones || 0);
+  });
+
+  const result = new Map();
+
+  grouped.forEach((productMap, sucursal) => {
+    result.set(
+        sucursal,
+        Array.from(productMap.values())
+            .map((item) => ({
+              ...item,
+              altoPct: item.total > 0 ? (item.alto * 100) / item.total : null
+            }))
+            .sort((a, b) => Number(b.alto || 0) - Number(a.alto || 0))
+    );
+  });
+
+  return result;
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -1192,30 +2503,271 @@ const portadaFastInsights = computed(() => {
   ];
 });
 
-const portadaProductGoalChart = computed(() => ({
-  labels: portadaTopProducts.value.map((p) => p.producto),
-  datasets: [
-    {
-      label: 'Stock actual',
-      data: portadaTopProducts.value.map((p) => Number(p.stock || 0)),
-      backgroundColor: '#26b460',
-      borderRadius: 10,
-      borderSkipped: false
-    },
-    {
-      label: 'Presupuesto',
-      data: portadaTopProducts.value.map((p) => Number(p.presupuesto || 0)),
-      backgroundColor: '#8b5cf6',
-      borderRadius: 10,
-      borderSkipped: false
-    }
-  ]
-}));
+const portadaProductGoalTotals = computed(() => {
+  const rows = portadaTopProducts.value || [];
+
+  const stock = rows.reduce((acc, row) => acc + Number(row.stock || 0), 0);
+  const stockBase = rows.reduce((acc, row) => acc + Number(row.stockBase || 0), 0);
+  const presupuesto = rows.reduce((acc, row) => acc + Number(row.presupuesto || 0), 0);
+  const diferencia = stock - presupuesto;
+  const crecimientoMonto = stock - stockBase;
+
+  const cumplimientoPct = presupuesto > 0 ? (stock / presupuesto) * 100 : null;
+  const crecimientoPct = stockBase > 0 ? ((stock / stockBase) - 1) * 100 : null;
+
+  return {
+    stock,
+    stockBase,
+    presupuesto,
+    diferencia,
+    crecimientoMonto,
+    cumplimientoPct,
+    crecimientoPct
+  };
+});
+
+const portadaProductGoalRows = computed(() => {
+  const rows = [...(kpisProductData.value || [])]
+      .filter((p) => p.producto)
+      .map((p) => {
+        const stock = Number(p.stock || 0);
+        const stockBase = Number(p.stockBase || 0);
+        const presupuesto = Number(p.presupuesto || 0);
+        const diferencia = stock - presupuesto;
+        const crecimientoMonto = productGrowthAmount(p);
+
+        return {
+          producto: p.producto,
+          stock,
+          stockBase,
+          presupuesto,
+          diferencia,
+          cumplimientoPct: p.cumplimientoPct,
+          crecimientoMonto,
+          crecimientoPct: p.crecimientoPct,
+          isTotal: false
+        };
+      });
+
+  const totalStock = rows.reduce((acc, row) => acc + Number(row.stock || 0), 0);
+  const totalStockBase = rows.reduce((acc, row) => acc + Number(row.stockBase || 0), 0);
+  const totalPresupuesto = rows.reduce((acc, row) => acc + Number(row.presupuesto || 0), 0);
+  const totalDiferencia = totalStock - totalPresupuesto;
+  const totalCrecimientoMonto = totalStock - totalStockBase;
+
+  const totalCumplimientoPct =
+      totalPresupuesto > 0
+          ? (totalStock / totalPresupuesto) * 100
+          : null;
+
+  const totalCrecimientoPct =
+      totalStockBase > 0
+          ? ((totalStock / totalStockBase) - 1) * 100
+          : null;
+
+  rows.push({
+    producto: 'TOTAL',
+    stock: totalStock,
+    stockBase: totalStockBase,
+    presupuesto: totalPresupuesto,
+    diferencia: totalDiferencia,
+    cumplimientoPct: totalCumplimientoPct,
+    crecimientoMonto: totalCrecimientoMonto,
+    crecimientoPct: totalCrecimientoPct,
+    isTotal: true
+  });
+
+  return rows;
+});
+
+const portadaProductGoalChart = computed(() => {
+  const rows = portadaProductGoalRows.value;
+
+  return {
+    labels: rows.map((p) => p.producto),
+    datasets: [
+      {
+        label: 'Sobre meta',
+        data: rows.map((p) => p.diferencia > 0 ? p.diferencia : null),
+        backgroundColor: rows.map((p) => p.isTotal ? '#1a8a49' : '#26b460'),
+        borderColor: rows.map((p) => p.isTotal ? '#116b38' : '#26b460'),
+        borderWidth: rows.map((p) => p.isTotal ? 2 : 1),
+        borderRadius: 10,
+        borderSkipped: false,
+        metaRows: rows
+      },
+      {
+        label: 'Bajo meta',
+        data: rows.map((p) => p.diferencia < 0 ? p.diferencia : null),
+        backgroundColor: rows.map((p) => p.isTotal ? '#b91c1c' : '#e05252'),
+        borderColor: rows.map((p) => p.isTotal ? '#991b1b' : '#e05252'),
+        borderWidth: rows.map((p) => p.isTotal ? 2 : 1),
+        borderRadius: 10,
+        borderSkipped: false,
+        metaRows: rows
+      },
+      {
+        label: 'Línea cero',
+        data: rows.map(() => 0),
+        type: 'line',
+        borderColor: '#8b5cf6',
+        backgroundColor: '#8b5cf6',
+        borderWidth: 2,
+        borderDash: [6, 4],
+        pointRadius: 0,
+        pointHoverRadius: 0,
+        tension: 0,
+        fill: false,
+        metaRows: rows
+      }
+    ]
+  };
+});
 
 const portadaProductGoalOptions = {
   responsive: true,
   maintainAspectRatio: false,
-  indexAxis: 'y',
+
+  interaction: {
+    mode: 'nearest',
+    intersect: true
+  },
+
+  plugins: {
+    legend: {
+      display: true,
+      position: 'top',
+      labels: {
+        color: '#4a6355',
+        boxWidth: 12,
+        padding: 16,
+        usePointStyle: true,
+        filter: (legendItem) => legendItem.text !== 'Línea cero'
+      }
+    },
+
+    tooltip: {
+      ...tooltipBase,
+
+      filter: (tooltipItem) => {
+        const label = tooltipItem.dataset.label;
+        const value = Number(tooltipItem.raw);
+
+        if (label === 'Línea cero') return false;
+        if (label === 'Sobre meta') return value > 0;
+        if (label === 'Bajo meta') return value < 0;
+
+        return true;
+      },
+
+      callbacks: {
+        title: (items) => {
+          return items[0]?.label || '';
+        },
+
+        label: (ctx) => {
+          const row = ctx.dataset.metaRows?.[ctx.dataIndex];
+
+          if (!row) return '';
+
+          if (row.diferencia > 0) {
+            return ` Sobre meta: ${signedMoneyFullNoDecimals(row.diferencia)}`;
+          }
+
+          if (row.diferencia < 0) {
+            return ` Bajo meta: ${signedMoneyFullNoDecimals(row.diferencia)}`;
+          }
+
+          return ` En meta: ${moneyFullNoDecimals(0)}`;
+        },
+
+        afterBody: (items) => {
+          const first = items[0];
+
+          if (!first) return [];
+
+          const row = first.dataset.metaRows?.[first.dataIndex];
+
+          if (!row) return [];
+
+          return [
+            '', `Stock diciembre: ${moneyFullNoDecimals(row.stockBase)}`,
+            `Stock actual: ${moneyFullNoDecimals(row.stock)}`,
+            `Meta presupuesto: ${moneyFullNoDecimals(row.presupuesto)}`,
+            `Cumplimiento: ${
+                row.cumplimientoPct === null || row.cumplimientoPct === undefined
+                    ? 'N/A'
+                    : `${Number(row.cumplimientoPct).toFixed(2)}%`
+            }`,
+            `Crecimiento monto: ${signedMoneyFullNoDecimals(row.crecimientoMonto)}`,
+            `Crecimiento %: ${
+                row.crecimientoPct === null || row.crecimientoPct === undefined
+                    ? 'N/A'
+                    : `${Number(row.crecimientoPct).toFixed(2)}%`
+            }`
+          ];
+        },
+
+        labelColor: (ctx) => {
+          const row = ctx.dataset.metaRows?.[ctx.dataIndex];
+
+          if (row?.diferencia > 0) {
+            return {
+              borderColor: '#26b460',
+              backgroundColor: '#26b460'
+            };
+          }
+
+          if (row?.diferencia < 0) {
+            return {
+              borderColor: '#e05252',
+              backgroundColor: '#e05252'
+            };
+          }
+
+          return {
+            borderColor: '#8b5cf6',
+            backgroundColor: '#8b5cf6'
+          };
+        }
+      }
+    }
+  },
+
+  scales: {
+    x: {
+      grid: {color: 'rgba(15,31,22,.04)', drawBorder: false},
+      ticks: {
+        color: '#6f8177',
+        font: {size: 11, weight: '600'},
+        autoSkip: false,
+        maxRotation: 0,
+        minRotation: 0,
+        padding: 10
+      }
+    },
+
+    y: {
+      grid: {
+        color: (ctx) => {
+          if (ctx.tick.value === 0) return 'rgba(139,92,246,.35)';
+          return 'rgba(15,31,22,.05)';
+        },
+        drawBorder: false
+      },
+      beginAtZero: true,
+      ticks: {
+        color: '#6f8177',
+        font: {size: 12},
+        callback: (value) => signedMoneyFullNoDecimals(value)
+      }
+    }
+  }
+};
+
+const pdRiskStackedOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
   interaction: {
     mode: 'index',
     intersect: false
@@ -1235,54 +2787,120 @@ const portadaProductGoalOptions = {
       ...tooltipBase,
       callbacks: {
         label: (ctx) => {
-          const value = Number(ctx.parsed.x || 0);
-          return ` ${ctx.dataset.label}: ${moneyFullNoDecimals(value)}`;
+          const value = Number(ctx.raw || 0);
+
+          return ` ${ctx.dataset.label}: ${value.toLocaleString('en-US')} operaciones`;
         },
         afterBody: (items) => {
-          const stockItem = items.find((item) => item.dataset.label === 'Stock actual');
-          const presupuestoItem = items.find((item) => item.dataset.label === 'Presupuesto');
+          const first = items[0];
 
-          if (!stockItem || !presupuestoItem) return [];
+          if (!first) return [];
 
-          const stock = Number(stockItem.raw || 0);
-          const presupuesto = Number(presupuestoItem.raw || 0);
-          const diferencia = stock - presupuesto;
-          const cumplimiento = presupuesto > 0 ? (stock / presupuesto) * 100 : null;
+          const producto = first.label;
+          const row = pdRiskByProduct.value.find((item) => item.producto === producto);
+
+          if (!row) return [];
 
           return [
             '',
-            `Diferencia: ${signedMoneyFullNoDecimals(diferencia)}`,
-            `Cumplimiento: ${cumplimiento === null ? 'N/A' : `${cumplimiento.toFixed(2)}%`}`
+            `Total evaluado: ${Number(row.total || 0).toLocaleString('en-US')}`,
+            `% Alta: ${row.altoPct === null ? 'N/A' : `${Number(row.altoPct).toFixed(2)}%`}`,
+            `% Media: ${row.mediaPct === null ? 'N/A' : `${Number(row.mediaPct).toFixed(2)}%`}`,
+            `% Baja: ${row.bajaPct === null ? 'N/A' : `${Number(row.bajaPct).toFixed(2)}%`}`
           ];
-        },
-        labelColor: (ctx) => {
-          if (ctx.dataset.label === 'Stock actual') {
-            return {
-              borderColor: '#26b460',
-              backgroundColor: '#26b460'
-            };
-          }
-
-          return {
-            borderColor: '#8b5cf6',
-            backgroundColor: '#8b5cf6'
-          };
         }
       }
     }
   },
   scales: {
     x: {
+      stacked: true,
+      grid: {color: 'rgba(15,31,22,.04)', drawBorder: false},
+      ticks: {
+        color: '#6f8177',
+        font: {size: 11, weight: '600'},
+        autoSkip: false,
+        maxRotation: 0,
+        minRotation: 0
+      }
+    },
+    y: {
+      stacked: true,
+      beginAtZero: true,
       grid: {color: 'rgba(15,31,22,.05)', drawBorder: false},
       ticks: {
         color: '#6f8177',
-        callback: (value) => moneyFullNoDecimals(value)
+        font: {size: 12},
+        callback: (value) => Number(value).toLocaleString('en-US')
+      }
+    }
+  }
+};
+
+const pdRiskBarOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  indexAxis: 'y',
+  plugins: {
+    legend: {
+      display: false
+    },
+    tooltip: {
+      ...tooltipBase,
+      callbacks: {
+        label: (ctx) => {
+          const value = Number(ctx.raw || 0);
+
+          return ` Alta probabilidad: ${value.toLocaleString('en-US')} operaciones`;
+        },
+
+        afterBody: (items) => {
+          const first = items[0];
+
+          if (!first) return [];
+
+          const sucursal = first.label;
+          const row = pdRiskBySucursal.value.find((item) => item.sucursal === sucursal);
+          const products = pdRiskSucursalProductBreakdown.value.get(sucursal) || [];
+
+          if (!row) return [];
+
+          const lines = [
+            '',
+            `Total evaluado: ${Number(row.total || 0).toLocaleString('en-US')}`,
+            `% Alta: ${row.altoPct === null ? 'N/A' : `${Number(row.altoPct).toFixed(2)}%`}`,
+            '',
+            'Distribución por producto:'
+          ];
+
+          products.slice(0, 8).forEach((prod) => {
+            lines.push(
+                `${prod.producto}: ${Number(prod.alto || 0).toLocaleString('en-US')}`
+            );
+          });
+
+          if (products.length > 8) {
+            lines.push(`+${products.length - 8} productos adicionales`);
+          }
+
+          return lines;
+        }
+      }
+    }
+  },
+  scales: {
+    x: {
+      beginAtZero: true,
+      grid: {color: 'rgba(15,31,22,.05)', drawBorder: false},
+      ticks: {
+        color: '#6f8177',
+        callback: (value) => Number(value).toLocaleString('en-US')
       }
     },
     y: {
       grid: {display: false, drawBorder: false},
       ticks: {
-        color: '#354158',
+        color: '#4a6355',
         font: {size: 11, weight: '600'}
       }
     }
@@ -1290,49 +2908,106 @@ const portadaProductGoalOptions = {
 };
 
 
+function benchmarkPeriodLabel(row) {
+  const value = benchmarkDateValue(row);
+
+  if (!value) return 'N/D';
+
+  const period = toPeriodYYYYMM(value);
+
+  return period === 'Último periodo disponible' ? 'N/D' : period;
+}
+
+const portadaGrowthLeadersPeriod = computed(() => {
+  const rowWithDate = (benchmark.value || []).find((row) => row.fechaCorteSF);
+
+  if (!rowWithDate?.fechaCorteSF) {
+    return 'N/D';
+  }
+
+  return toPeriodYYYYMM(rowWithDate.fechaCorteSF);
+});
 const portadaGrowthLeaders = computed(() => {
   const prodFilters = filtersApplied.value.producto || [];
 
   const rows = (benchmark.value || []).filter((item) => {
-    if (!item.producto) return false;
+    const producto = item.producto || item.segmentacioncredito;
+
+    if (!producto) return false;
 
     return (
         prodFilters.length === 0 ||
         prodFilters.includes('TODOS') ||
-        prodFilters.includes(item.producto)
+        prodFilters.includes(producto)
     );
   });
 
   const grouped = new Map();
 
   rows.forEach((row) => {
-    const producto = row.producto;
-    const crecimiento = Number(row.crecimientoTotal || 0);
+    const producto = row.producto || row.segmentacioncredito;
 
     if (!grouped.has(producto)) {
-      grouped.set(producto, {
-        producto,
-        banco: row.banco || 'N/D',
-        crecimientoTotal: crecimiento,
-        crecimientoPct: Number(row.crecimientoPct || 0)
-      });
-      return;
+      grouped.set(producto, []);
     }
 
-    const current = grouped.get(producto);
+    grouped.get(producto).push({
+      producto,
+      banco: row.banco || 'N/D',
+      stock: Number(row.stock || row.montoActual || row.MontoActualUSD || 0),
+      crecimientoTotal: Number(row.crecimientoTotal || row.CrecimientoTotalUSD || 0),
+      crecimientoPct: row.crecimientoPct === null || row.crecimientoPct === undefined
+          ? null
+          : Number(row.crecimientoPct),
 
-    if (crecimiento > Number(current.crecimientoTotal || 0)) {
-      grouped.set(producto, {
-        producto,
-        banco: row.banco || 'N/D',
-        crecimientoTotal: crecimiento,
-        crecimientoPct: Number(row.crecimientoPct || 0)
-      });
-    }
+      // Fecha correcta: origen Hub_CarteraSF
+      fechaCorteSF: row.fechaCorteSF || null,
+      periodoCorteSF: row.fechaCorteSF ? toPeriodYYYYMM(row.fechaCorteSF) : 'N/D'
+    });
   });
 
-  return Array.from(grouped.values())
-      .sort((a, b) => Number(b.crecimientoTotal || 0) - Number(a.crecimientoTotal || 0))
+  const result = [];
+
+  grouped.forEach((items, producto) => {
+    const ordered = [...items].sort(
+        (a, b) => Number(b.crecimientoTotal || 0) - Number(a.crecimientoTotal || 0)
+    );
+
+    const leader = ordered[0];
+
+    const bnbIndex = ordered.findIndex((item) =>
+        String(item.banco || '').trim().toUpperCase() === 'BNB'
+    );
+
+    const bnb = bnbIndex >= 0 ? ordered[bnbIndex] : null;
+
+    const crecimientoSistemaTotal = ordered.reduce(
+        (acc, item) => acc + Number(item.crecimientoTotal || 0),
+        0
+    );
+
+    result.push({
+      producto,
+
+      banco: leader?.banco || 'N/D',
+      crecimientoTotal: Number(leader?.crecimientoTotal || 0),
+      crecimientoPct: leader?.crecimientoPct ?? null,
+
+      bnbPosicion: bnb ? bnbIndex + 1 : null,
+      bnbCrecimientoTotal: bnb ? Number(bnb.crecimientoTotal || 0) : null,
+      bnbCrecimientoPct: bnb?.crecimientoPct ?? null,
+
+      crecimientoSistemaTotal,
+      totalBancos: ordered.length,
+
+      // Fecha oficial de la fuente Hub_CarteraSF
+      fechaCorteSF: leader?.fechaCorteSF || null,
+      periodoCorteSF: leader?.periodoCorteSF || 'N/D'
+    });
+  });
+
+  return result
+      .sort((a, b) => Number(b.crecimientoSistemaTotal || 0) - Number(a.crecimientoSistemaTotal || 0))
       .slice(0, 6);
 });
 
@@ -1514,35 +3189,78 @@ ${rows}
 `.trim();
 }
 
-function buildCompetitorBenchmarkTable(limit = 80) {
+function buildCompetitorBenchmarkTable(limit = 160) {
   const rowsSource = filteredBenchmark.value || [];
 
   if (!rowsSource.length) {
     return 'No hay datos detallados de bancos competidores disponibles.';
   }
 
+  const totalStockByProduct = new Map();
+
+  rowsSource.forEach((row) => {
+    const producto = row.producto || row.segmentacioncredito || 'N/A';
+    const stock = safeNumber(row.stock ?? row.total ?? row.montoActual ?? row.MontoActualUSD);
+
+    totalStockByProduct.set(
+        producto,
+        safeNumber(totalStockByProduct.get(producto)) + stock
+    );
+  });
+
   const rows = [...rowsSource]
+      .map((row) => {
+        const producto = row.producto || row.segmentacioncredito || 'N/A';
+        const banco = row.banco || 'N/A';
+        const stock = safeNumber(row.stock ?? row.total ?? row.montoActual ?? row.MontoActualUSD);
+        const totalProducto = safeNumber(totalStockByProduct.get(producto));
+        const participacionPct = totalProducto > 0 ? (stock / totalProducto) * 100 : null;
+        const crecimientoMonto = safeNumber(row.crecimientoTotal ?? row.CrecimientoTotalUSD);
+        const crecimientoPct = row.crecimientoPct === null || row.crecimientoPct === undefined
+            ? null
+            : Number(row.crecimientoPct);
+
+        return {
+          banco,
+          producto,
+          stock,
+          participacionPct,
+          crecimientoMonto,
+          crecimientoPct
+        };
+      })
       .sort((a, b) => {
         const productCompare = String(a.producto || '').localeCompare(String(b.producto || ''));
-        if (productCompare !== 0) return productCompare;
 
-        const bnbPriorityA = a.banco === 'BNB' ? -1 : 0;
-        const bnbPriorityB = b.banco === 'BNB' ? -1 : 0;
-        if (bnbPriorityA !== bnbPriorityB) return bnbPriorityA - bnbPriorityB;
+        if (productCompare !== 0) {
+          return productCompare;
+        }
 
-        return safeNumber(b.crecimientoTotal) - safeNumber(a.crecimientoTotal);
+        const bnbPriorityA = String(a.banco || '').toUpperCase() === 'BNB' ? -1 : 0;
+        const bnbPriorityB = String(b.banco || '').toUpperCase() === 'BNB' ? -1 : 0;
+
+        if (bnbPriorityA !== bnbPriorityB) {
+          return bnbPriorityA - bnbPriorityB;
+        }
+
+        return safeNumber(b.stock) - safeNumber(a.stock);
       })
       .slice(0, limit)
-      .map((b) =>
-          `| ${b.producto || 'N/A'} | ${b.banco || 'N/A'} | ${fmtMoneyPrompt(b.stock)} | ${fmtMoneyPrompt(b.stockBase)} | ${fmtMoneyPrompt(b.crecimientoTotal)} | ${fmtPctPrompt(b.crecimientoPct)} |`
+      .map((row) =>
+          `| ${row.banco} | ${row.producto} | ${fmtMoneyPrompt(row.stock)} | ${fmtPctPrompt(row.participacionPct)} | ${fmtMoneyPrompt(row.crecimientoMonto)} | ${fmtPctPrompt(row.crecimientoPct)} |`
       )
       .join('\n');
 
   return `
-Detalle competitivo por banco y producto:
-| Producto | Banco | Stock actual | Stock base | Crecimiento total | Crecimiento % |
+Detalle BNB vs sistema financiero por banco y producto:
+| Banco | Producto | Stock | Participación sobre producto | Crecimiento monto | Crecimiento % |
 |---|---|---:|---:|---:|---:|
 ${rows}
+
+Notas de lectura:
+- Participación sobre producto = stock del banco / stock total del sistema financiero para ese producto.
+- El total del sistema financiero incluye BNB.
+- La tabla incluye BNB y los demás bancos competidores bajo la misma estructura.
 `.trim();
 }
 
@@ -1585,13 +3303,125 @@ ${rows}
 `.trim();
 }
 
+function buildProjectionTable(limit = 36) {
+  const rowsSource = [];
+
+  const selectedProducts = selectedProjProducts.value || [];
+
+  if (selectedProducts.length > 0) {
+    selectedProducts.forEach((product) => {
+      const rows = projectionProductData.value?.[product] || [];
+
+      rows.forEach((row) => {
+        rowsSource.push({
+          ...row,
+          producto: product
+        });
+      });
+    });
+  } else {
+    (projection.value || []).forEach((row) => {
+      rowsSource.push({
+        ...row,
+        producto: row.producto || 'Consolidado'
+      });
+    });
+  }
+
+  if (!rowsSource.length) {
+    return 'No hay información de proyección disponible.';
+  }
+
+  const rows = [...rowsSource]
+      .sort((a, b) => {
+        const da = new Date(a.fecha || a.month);
+        const db = new Date(b.fecha || b.month);
+
+        if (!Number.isNaN(da.getTime()) && !Number.isNaN(db.getTime())) {
+          return da - db;
+        }
+
+        return String(a.month || '').localeCompare(String(b.month || ''));
+      })
+      .slice(0, limit)
+      .map((p) => {
+        const periodo = toPeriodYYYYMM(p.fecha || p.month);
+        const desembolso = Number(p.desembolso || 0) * 1000;
+        const amortizacion = Number(p.amortizacion || 0) * 1000;
+        const flujoNeto = desembolso - amortizacion;
+
+        return `| ${periodo} | ${p.producto || 'Consolidado'} | ${p.tipoDato || 'N/D'} | ${fmtMoneyPrompt(desembolso)} | ${fmtMoneyPrompt(amortizacion)} | ${fmtMoneyPrompt(flujoNeto)} |`;
+      })
+      .join('\n');
+
+  return `
+Proyección financiera:
+| Periodo yyyymm | Producto | Tipo dato | Desembolso proyectado | Amortización proyectada | Flujo neto |
+|---|---|---|---:|---:|---:|
+${rows}
+
+Notas:
+- Escenario de desembolsos: ${desembolsoScenario.value}.
+- Escenario de amortización: ${amortizacionScenario.value}.
+- Flujo neto = desembolso - amortización.
+- HISTORICO representa dato real; PROYECCION representa escenario futuro.
+`.trim();
+}
+
+function buildPdRiskTable(limit = 20) {
+  if (!pdRisk.value?.length) {
+    return 'No hay información de riesgo predictivo disponible.';
+  }
+
+  const totals = pdRiskTotals.value;
+
+  const rows = [...pdRisk.value]
+      .sort((a, b) => {
+        const highCompare = safeNumber(b.alto) - safeNumber(a.alto);
+        if (highCompare !== 0) return highCompare;
+
+        return safeNumber(b.media) - safeNumber(a.media);
+      })
+      .slice(0, limit)
+      .map((r) => {
+        return `| ${r.sucursal || 'N/D'} | ${r.nombreAgencia || r.codAgencia || 'N/D'} | ${r.producto || 'N/D'} | ${Number(r.alto || 0).toLocaleString('en-US')} | ${Number(r.media || 0).toLocaleString('en-US')} | ${Number(r.baja || 0).toLocaleString('en-US')} | ${Number(r.totalOperaciones || 0).toLocaleString('en-US')} | ${fmtPctPrompt(r.altoPct)} |`;
+      })
+      .join('\n');
+
+  return `
+Riesgo predictivo de mora:
+Resumen:
+| Métrica | Valor |
+|---|---:|
+| Operaciones alta probabilidad | ${Number(totals.alto || 0).toLocaleString('en-US')} |
+| Operaciones media probabilidad | ${Number(totals.media || 0).toLocaleString('en-US')} |
+| Operaciones baja probabilidad | ${Number(totals.baja || 0).toLocaleString('en-US')} |
+| Total evaluado | ${Number(totals.total || 0).toLocaleString('en-US')} |
+| % alta probabilidad | ${fmtPctPrompt(totals.altoPct)} |
+| % media probabilidad | ${fmtPctPrompt(totals.mediaPct)} |
+| % baja probabilidad | ${fmtPctPrompt(totals.bajaPct)} |
+
+Detalle crítico por agencia:
+| Sucursal | Agencia | Producto | Alta | Media | Baja | Total | % Alta |
+|---|---|---|---:|---:|---:|---:|---:|
+${rows}
+
+Interpretación:
+- Alta, Media y Baja representan cantidad de operaciones según probabilidad de caer en mora el siguiente mes.
+- Alta debe priorizarse como alerta temprana comercial y de seguimiento preventivo.
+`.trim();
+}
+
+
 function buildAgentPrompt({
                             title,
                             objective,
                             includeMarket = false,
                             includeCompetitors = false,
                             includeOfficials = false,
-                            includeTimeSeries = false
+                            includeTimeSeries = false,
+                            includeProjection = false,
+                            includePdRisk = false
                           }) {
   const blocks = [
     'Actúa como Gerente Comercial Senior de un banco y Analista Ejecutivo de Cartera.',
@@ -1609,6 +3439,8 @@ ${objective}
   if (includeCompetitors) blocks.push(buildCompetitorBenchmarkTable());
   if (includeOfficials) blocks.push(buildOfficialsTable());
   if (includeTimeSeries) blocks.push(buildTimeSeriesTable());
+  if (includeProjection) blocks.push(buildProjectionTable());
+  if (includePdRisk) blocks.push(buildPdRiskTable());
 
   blocks.push(`
 Formato obligatorio de respuesta:
@@ -1616,8 +3448,9 @@ Formato obligatorio de respuesta:
 2. Diagnóstico comercial de la situación actual.
 3. Tabla de hallazgos relevantes con impacto, causa probable y acción sugerida.
 4. Análisis de productos críticos, productos líderes y productos con oportunidad.
-5. Riesgos comerciales y alertas tempranas.
-6. Recomendaciones accionables para gerencia comercial.
+5. Riesgos comerciales, alertas tempranas y probabilidad de mora si existe información disponible.
+6. Lectura de proyección financiera si existe información disponible.
+7. Recomendaciones accionables para gerencia comercial.
 
 Importante:
 - Cuando menciones periodos, usa formato yyyymm.
@@ -1659,7 +3492,9 @@ Cuando analices periodos, usa formato yyyymm.
     includeMarket: true,
     includeCompetitors: true,
     includeOfficials: true,
-    includeTimeSeries: true
+    includeTimeSeries: true,
+    includeProjection: true,
+    includePdRisk: true
   });
 
   sendChat(finalPrompt);
@@ -1687,22 +3522,28 @@ function triggerCompetenciaAnalysis() {
   const finalPrompt = buildAgentPrompt({
     title: 'Análisis competitivo BNB vs sistema financiero',
     objective: `
-Compara el desempeño de BNB contra cada banco competidor del sistema financiero.
+objective: \`
+Compara el desempeño de BNB contra cada banco competidor del sistema financiero usando la tabla detallada por banco y producto.
 
-El análisis debe usar dos niveles:
-1. Participación BNB por producto contra el total del sistema financiero.
-2. Comparación banco por banco usando stock actual, stock base, crecimiento total y crecimiento porcentual.
+El análisis debe usar estos campos:
+- Banco.
+- Producto.
+- Stock.
+- Participación sobre el producto dentro del sistema financiero.
+- Crecimiento monto.
+- Crecimiento %.
 
 Identifica:
 - En qué productos BNB tiene mejor posición relativa.
-- En qué productos otros bancos están creciendo más que BNB.
-- Qué bancos representan mayor presión competitiva por producto.
+- En qué productos otros bancos tienen mayor stock o mayor participación.
+- Qué bancos están creciendo más que BNB por producto.
+- Qué bancos representan mayor presión competitiva.
 - Dónde BNB tiene oportunidad de capturar cuota de mercado.
 - Dónde BNB debe defender posición.
-- Qué acciones comerciales deberían priorizarse por producto y competidor.
 
-No incluyas proyecciones ni escenarios futuros.
+No incluyas proyecciones ni escenarios proyectados.
 Cuando analices periodos, usa formato yyyymm.
+\`,
 `,
     includeMarket: true,
     includeCompetitors: true,
@@ -1744,7 +3585,63 @@ Cuando analices periodos, usa formato yyyymm.
 `,
     includeMarket: false,
     includeOfficials: false,
-    includeTimeSeries: true
+    includeTimeSeries: true,
+    includeProjection: false,
+    includePdRisk: true
+  });
+
+  sendChat(finalPrompt);
+}
+
+function triggerProjectionAnalysis() {
+  const finalPrompt = buildAgentPrompt({
+    title: 'Análisis de proyección financiera',
+    objective: `
+Analiza la proyección financiera del portafolio usando desembolsos, amortización y flujo neto.
+
+El análisis debe:
+- Separar datos históricos de datos proyectados.
+- Identificar meses con mayor presión de amortización.
+- Identificar meses con mejor flujo neto.
+- Evaluar si el escenario actual favorece el crecimiento de cartera.
+- Detectar productos con mayor oportunidad o riesgo según su comportamiento proyectado.
+- Recomendar acciones comerciales y de seguimiento para sostener el cumplimiento.
+
+Cuando analices periodos, usa formato yyyymm.
+`,
+    includeMarket: false,
+    includeCompetitors: false,
+    includeOfficials: false,
+    includeTimeSeries: true,
+    includeProjection: true,
+    includePdRisk: false
+  });
+
+  sendChat(finalPrompt);
+}
+
+function triggerPdRiskAnalysis() {
+  const finalPrompt = buildAgentPrompt({
+    title: 'Análisis de probabilidad de mora',
+    objective: `
+Analiza las operaciones con probabilidad de caer en mora el siguiente mes.
+
+El análisis debe:
+- Explicar el volumen total evaluado.
+- Priorizar operaciones de alta probabilidad.
+- Identificar productos, sucursales y agencias más críticas.
+- Separar riesgo alto, medio y bajo.
+- Recomendar acciones preventivas para seguimiento comercial, cobranza temprana o gestión de cartera.
+- Indicar dónde se concentra el riesgo y qué acciones debería revisar gerencia.
+
+Cuando analices periodos, usa formato yyyymm.
+`,
+    includeMarket: false,
+    includeCompetitors: false,
+    includeOfficials: false,
+    includeTimeSeries: false,
+    includeProjection: false,
+    includePdRisk: true
   });
 
   sendChat(finalPrompt);
@@ -1765,12 +3662,624 @@ Cuando analices periodos, usa formato yyyymm.
 `,
     includeMarket: true,
     includeOfficials: true,
-    includeTimeSeries: true
+    includeTimeSeries: true,
+    includeProjection: true,
+    includePdRisk: true
   });
 
   sendChat(finalPrompt);
 }
 
+const captacionesPeriod = computed(() => {
+  const row = (captaciones.value || []).find((item) => item.fecha);
+  return row?.fecha ? toPeriodYYYYMM(row.fecha) : 'N/D';
+});
+
+const captacionesTotals = computed(() => {
+  const rows = captaciones.value || [];
+
+  const ejecutadaCaptaciones = rows.reduce((acc, row) => acc + Number(row.ejecutadaCaptaciones || 0), 0);
+  const presupuestadaCaptaciones = rows.reduce((acc, row) => acc + Number(row.presupuestadaCaptaciones || 0), 0);
+
+  const ejecutadaVista = rows.reduce((acc, row) => acc + Number(row.ejecutadaVista || 0), 0);
+  const presupuestadaVista = rows.reduce((acc, row) => acc + Number(row.presupuestadaVista || 0), 0);
+
+  const ejecutadaAhorros = rows.reduce((acc, row) => acc + Number(row.ejecutadaAhorros || 0), 0);
+  const presupuestadaAhorros = rows.reduce((acc, row) => acc + Number(row.presupuestadaAhorros || 0), 0);
+
+  const ejecutadaPlazo = rows.reduce((acc, row) => acc + Number(row.ejecutadaPlazo || 0), 0);
+  const presupuestadaPlazo = rows.reduce((acc, row) => acc + Number(row.presupuestadaPlazo || 0), 0);
+
+  const brechaCaptaciones = ejecutadaCaptaciones - presupuestadaCaptaciones;
+
+  return {
+    ejecutadaCaptaciones,
+    presupuestadaCaptaciones,
+    brechaCaptaciones,
+    cumplimientoCaptacionesPct:
+        presupuestadaCaptaciones > 0 ? (ejecutadaCaptaciones / presupuestadaCaptaciones) * 100 : null,
+
+    ejecutadaVista,
+    presupuestadaVista,
+    brechaVista: ejecutadaVista - presupuestadaVista,
+    cumplimientoVistaPct:
+        presupuestadaVista > 0 ? (ejecutadaVista / presupuestadaVista) * 100 : null,
+
+    ejecutadaAhorros,
+    presupuestadaAhorros,
+    brechaAhorros: ejecutadaAhorros - presupuestadaAhorros,
+    cumplimientoAhorrosPct:
+        presupuestadaAhorros > 0 ? (ejecutadaAhorros / presupuestadaAhorros) * 100 : null,
+
+    ejecutadaPlazo,
+    presupuestadaPlazo,
+    brechaPlazo: ejecutadaPlazo - presupuestadaPlazo,
+    cumplimientoPlazoPct:
+        presupuestadaPlazo > 0 ? (ejecutadaPlazo / presupuestadaPlazo) * 100 : null
+  };
+});
+
+const captacionesBySucursal = computed(() => {
+  const grouped = new Map();
+
+  (captaciones.value || []).forEach((row) => {
+    const sucursal = row.sucursal || 'Sin sucursal';
+
+    if (!grouped.has(sucursal)) {
+      grouped.set(sucursal, {
+        sucursal,
+        ejecutadaCaptaciones: 0,
+        presupuestadaCaptaciones: 0,
+        ejecutadaVista: 0,
+        presupuestadaVista: 0,
+        ejecutadaAhorros: 0,
+        presupuestadaAhorros: 0,
+        ejecutadaPlazo: 0,
+        presupuestadaPlazo: 0,
+        tendenciaCaptaciones: 0,
+        categorias: new Map()
+      });
+    }
+
+    const item = grouped.get(sucursal);
+
+    item.ejecutadaCaptaciones += Number(row.ejecutadaCaptaciones || 0);
+    item.presupuestadaCaptaciones += Number(row.presupuestadaCaptaciones || 0);
+
+    item.ejecutadaVista += Number(row.ejecutadaVista || 0);
+    item.presupuestadaVista += Number(row.presupuestadaVista || 0);
+
+    item.ejecutadaAhorros += Number(row.ejecutadaAhorros || 0);
+    item.presupuestadaAhorros += Number(row.presupuestadaAhorros || 0);
+
+    item.ejecutadaPlazo += Number(row.ejecutadaPlazo || 0);
+    item.presupuestadaPlazo += Number(row.presupuestadaPlazo || 0);
+
+    item.tendenciaCaptaciones += Number(row.tendenciaCaptaciones || 0);
+
+    const categoria = row.categoriaTendencia || 'N/D';
+    item.categorias.set(categoria, (item.categorias.get(categoria) || 0) + 1);
+  });
+
+  return Array.from(grouped.values())
+      .map((item) => {
+        const categoriaTendencia =
+            Array.from(item.categorias.entries())
+                .sort((a, b) => b[1] - a[1])?.[0]?.[0] || 'N/D';
+
+        return {
+          ...item,
+          categoriaTendencia,
+          brechaCaptaciones: item.ejecutadaCaptaciones - item.presupuestadaCaptaciones,
+          cumplimientoCaptacionesPct:
+              item.presupuestadaCaptaciones > 0
+                  ? (item.ejecutadaCaptaciones / item.presupuestadaCaptaciones) * 100
+                  : null,
+          cumplimientoVistaPct:
+              item.presupuestadaVista > 0
+                  ? (item.ejecutadaVista / item.presupuestadaVista) * 100
+                  : null,
+          cumplimientoAhorrosPct:
+              item.presupuestadaAhorros > 0
+                  ? (item.ejecutadaAhorros / item.presupuestadaAhorros) * 100
+                  : null,
+          cumplimientoPlazoPct:
+              item.presupuestadaPlazo > 0
+                  ? (item.ejecutadaPlazo / item.presupuestadaPlazo) * 100
+                  : null
+        };
+      })
+      .sort((a, b) => Number(b.ejecutadaCaptaciones || 0) - Number(a.ejecutadaCaptaciones || 0));
+});
+
+const captacionesFugaRows = computed(() => {
+  return captacionesByAgencia.value
+      .map((row) => {
+        const tendencia = Number(row.tendenciaCaptaciones || 0);
+        const montoRiesgo = tendencia < 0 ? Math.abs(tendencia) : 0;
+
+        return {
+          ...row,
+          montoRiesgo,
+          nivelFuga:
+              montoRiesgo >= 1_000_000 ? 'Alta' :
+                  montoRiesgo >= 250_000 ? 'Media' :
+                      montoRiesgo > 0 ? 'Baja' : 'Sin alerta'
+        };
+      })
+      .filter((row) => Number(row.montoRiesgo || 0) > 0)
+      .sort((a, b) => Number(b.montoRiesgo || 0) - Number(a.montoRiesgo || 0));
+});
+
+const captacionesFugaTotals = computed(() => {
+  const rows = captacionesFugaRows.value || [];
+
+  const alta = rows.filter((row) => row.nivelFuga === 'Alta').length;
+  const media = rows.filter((row) => row.nivelFuga === 'Media').length;
+  const baja = rows.filter((row) => row.nivelFuga === 'Baja').length;
+  const montoRiesgo = rows.reduce((acc, row) => acc + Number(row.montoRiesgo || 0), 0);
+
+  return {
+    alta,
+    media,
+    baja,
+    totalAgencias: rows.length,
+    montoRiesgo
+  };
+});
+
+const captacionesFugaChart = computed(() => ({
+  labels: ['Alta', 'Media', 'Baja'],
+  datasets: [
+    {
+      label: 'Agencias en alerta',
+      data: [
+        captacionesFugaTotals.value.alta,
+        captacionesFugaTotals.value.media,
+        captacionesFugaTotals.value.baja
+      ],
+      backgroundColor: ['#e05252', '#f59e0b', '#26b460'],
+      borderRadius: 8
+    }
+  ]
+}));
+
+const captacionesByAgencia = computed(() => {
+  const grouped = new Map();
+
+  (captaciones.value || []).forEach((row) => {
+    const key = `${row.sucursal || 'Sin sucursal'}|${row.codAgencia || 'N/D'}|${row.nombreAgencia || 'N/D'}`;
+
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        sucursal: row.sucursal || 'Sin sucursal',
+        codAgencia: row.codAgencia || 'N/D',
+        nombreAgencia: row.nombreAgencia || 'N/D',
+        ejecutadaCaptaciones: 0,
+        presupuestadaCaptaciones: 0,
+        ejecutadaVista: 0,
+        presupuestadaVista: 0,
+        ejecutadaAhorros: 0,
+        presupuestadaAhorros: 0,
+        ejecutadaPlazo: 0,
+        presupuestadaPlazo: 0,
+        tendenciaCaptaciones: 0,
+        categorias: new Map()
+      });
+    }
+
+    const item = grouped.get(key);
+
+    item.ejecutadaCaptaciones += Number(row.ejecutadaCaptaciones || 0);
+    item.presupuestadaCaptaciones += Number(row.presupuestadaCaptaciones || 0);
+
+    item.ejecutadaVista += Number(row.ejecutadaVista || 0);
+    item.presupuestadaVista += Number(row.presupuestadaVista || 0);
+
+    item.ejecutadaAhorros += Number(row.ejecutadaAhorros || 0);
+    item.presupuestadaAhorros += Number(row.presupuestadaAhorros || 0);
+
+    item.ejecutadaPlazo += Number(row.ejecutadaPlazo || 0);
+    item.presupuestadaPlazo += Number(row.presupuestadaPlazo || 0);
+
+    item.tendenciaCaptaciones += Number(row.tendenciaCaptaciones || 0);
+
+    const categoria = row.categoriaTendencia || 'N/D';
+    item.categorias.set(categoria, (item.categorias.get(categoria) || 0) + 1);
+  });
+
+  return Array.from(grouped.values())
+      .map((item) => {
+        const categoriaTendencia =
+            Array.from(item.categorias.entries())
+                .sort((a, b) => b[1] - a[1])?.[0]?.[0] || 'N/D';
+
+        return {
+          ...item,
+          categoriaTendencia,
+          brechaCaptaciones: item.ejecutadaCaptaciones - item.presupuestadaCaptaciones,
+          cumplimientoCaptacionesPct:
+              item.presupuestadaCaptaciones > 0
+                  ? (item.ejecutadaCaptaciones / item.presupuestadaCaptaciones) * 100
+                  : null,
+          cumplimientoVistaPct:
+              item.presupuestadaVista > 0
+                  ? (item.ejecutadaVista / item.presupuestadaVista) * 100
+                  : null,
+          cumplimientoAhorrosPct:
+              item.presupuestadaAhorros > 0
+                  ? (item.ejecutadaAhorros / item.presupuestadaAhorros) * 100
+                  : null,
+          cumplimientoPlazoPct:
+              item.presupuestadaPlazo > 0
+                  ? (item.ejecutadaPlazo / item.presupuestadaPlazo) * 100
+                  : null
+        };
+      })
+      .sort((a, b) => Number(b.ejecutadaCaptaciones || 0) - Number(a.ejecutadaCaptaciones || 0));
+});
+
+const captacionesTrendRows = computed(() => {
+  const grouped = new Map();
+
+  (captaciones.value || []).forEach((row) => {
+    const categoria = row.categoriaTendencia || 'Sin categoría';
+
+    if (!grouped.has(categoria)) {
+      grouped.set(categoria, {
+        categoria,
+        cantidad: 0,
+        monto: 0,
+        tendencia: 0
+      });
+    }
+
+    const item = grouped.get(categoria);
+
+    item.cantidad += 1;
+    item.monto += Number(row.ejecutadaCaptaciones || 0);
+    item.tendencia += Number(row.tendenciaCaptaciones || 0);
+  });
+
+  return Array.from(grouped.values())
+      .sort((a, b) => Number(b.monto || 0) - Number(a.monto || 0));
+});
+
+const captacionesProductoChart = computed(() => ({
+  labels: ['Vista', 'Ahorros', 'Plazo'],
+  datasets: [
+    {
+      label: 'Ejecutado',
+      data: [
+        captacionesTotals.value.ejecutadaVista,
+        captacionesTotals.value.ejecutadaAhorros,
+        captacionesTotals.value.ejecutadaPlazo
+      ],
+      backgroundColor: '#26b460',
+      borderRadius: 8
+    },
+    {
+      label: 'Presupuestado',
+      data: [
+        captacionesTotals.value.presupuestadaVista,
+        captacionesTotals.value.presupuestadaAhorros,
+        captacionesTotals.value.presupuestadaPlazo
+      ],
+      backgroundColor: '#8b5cf6',
+      borderRadius: 8
+    }
+  ]
+}));
+
+const captacionesSucursalChart = computed(() => {
+  const rows = captacionesBySucursal.value.slice(0, 10);
+
+  return {
+    labels: rows.map((item) => item.sucursal),
+    datasets: [
+      {
+        label: 'Captación ejecutada',
+        data: rows.map((item) => item.ejecutadaCaptaciones),
+        backgroundColor: '#26b460',
+        borderRadius: 8,
+        metaRows: rows
+      }
+    ]
+  };
+});
+
+const captacionesTrendChart = computed(() => ({
+  labels: captacionesTrendRows.value.map((item) => item.categoria),
+  datasets: [
+    {
+      data: captacionesTrendRows.value.map((item) => item.cantidad),
+      backgroundColor: ['#26b460', '#f59e0b', '#e05252', '#8b5cf6', '#64748b'],
+      borderColor: '#ffffff',
+      borderWidth: 3,
+      hoverOffset: 8
+    }
+  ]
+}));
+
+const captacionesBarOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  interaction: {mode: 'index', intersect: false},
+  plugins: {
+    legend: {
+      display: true,
+      position: 'top',
+      labels: {
+        color: '#4a6355',
+        boxWidth: 12,
+        padding: 16,
+        usePointStyle: true
+      }
+    },
+    tooltip: {
+      ...tooltipBase,
+      callbacks: {
+        label: (ctx) => {
+          const value = Number(ctx.raw || 0);
+          return ` ${ctx.dataset.label}: ${moneyFullNoDecimals(value)}`;
+        }
+      }
+    }
+  },
+  scales: {
+    x: {
+      grid: {color: 'rgba(15,31,22,.04)', drawBorder: false},
+      ticks: {color: '#6f8177', font: {size: 11, weight: '600'}}
+    },
+    y: {
+      beginAtZero: true,
+      grid: {color: 'rgba(15,31,22,.05)', drawBorder: false},
+      ticks: {
+        color: '#6f8177',
+        callback: (value) => moneyFullNoDecimals(value)
+      }
+    }
+  }
+};
+
+const captacionesHorizontalOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  indexAxis: 'y',
+  plugins: {
+    legend: {display: false},
+    tooltip: {
+      ...tooltipBase,
+      callbacks: {
+        label: (ctx) => {
+          const value = Number(ctx.raw || 0);
+          return ` Captación ejecutada: ${moneyFullNoDecimals(value)}`;
+        },
+        afterBody: (items) => {
+          const first = items?.[0];
+
+          if (!first) return [];
+
+          const row = first.dataset.metaRows?.[first.dataIndex];
+
+          if (!row) return [];
+
+          const total = Number(row.ejecutadaCaptaciones || 0);
+
+          const vista = Number(row.ejecutadaVista || 0);
+          const ahorros = Number(row.ejecutadaAhorros || 0);
+          const plazo = Number(row.ejecutadaPlazo || 0);
+
+          const pct = (value) => {
+            if (total <= 0) return 'N/A';
+            return `${((Number(value || 0) / total) * 100).toFixed(2)}%`;
+          };
+
+          return [
+            '',
+            'Composición:',
+            `Vista: ${moneyFullNoDecimals(vista)} · ${pct(vista)}`,
+            `Ahorros: ${moneyFullNoDecimals(ahorros)} · ${pct(ahorros)}`,
+            `DPF / Plazo: ${moneyFullNoDecimals(plazo)} · ${pct(plazo)}`,
+            '',
+            `Presupuesto total: ${moneyFullNoDecimals(row.presupuestadaCaptaciones)}`,
+            `Brecha: ${signedMoneyFullNoDecimals(row.brechaCaptaciones)}`,
+            `Cumplimiento: ${
+                row.cumplimientoCaptacionesPct === null || row.cumplimientoCaptacionesPct === undefined
+                    ? 'N/A'
+                    : `${Number(row.cumplimientoCaptacionesPct).toFixed(2)}%`
+            }`
+          ];
+        }
+      }
+    }
+  },
+  scales: {
+    x: {
+      beginAtZero: true,
+      grid: {color: 'rgba(15,31,22,.05)', drawBorder: false},
+      ticks: {
+        color: '#6f8177',
+        callback: (value) => moneyFullNoDecimals(value)
+      }
+    },
+    y: {
+      grid: {display: false, drawBorder: false},
+      ticks: {color: '#4a6355', font: {size: 11, weight: '600'}}
+    }
+  }
+};
+const captacionesStockBudgetRows = computed(() => {
+  const rows = [
+    {
+      key: 'VISTA',
+      producto: 'Vista',
+      stock: captacionesTotals.value.ejecutadaVista,
+      presupuesto: captacionesTotals.value.presupuestadaVista
+    },
+    {
+      key: 'AHORROS',
+      producto: 'Ahorros',
+      stock: captacionesTotals.value.ejecutadaAhorros,
+      presupuesto: captacionesTotals.value.presupuestadaAhorros
+    },
+    {
+      key: 'PLAZO',
+      producto: 'DPF / Plazo',
+      stock: captacionesTotals.value.ejecutadaPlazo,
+      presupuesto: captacionesTotals.value.presupuestadaPlazo
+    }
+  ];
+
+  const filtered =
+      captacionStockBudgetFilter.value === 'TODOS'
+          ? rows
+          : rows.filter((row) => row.key === captacionStockBudgetFilter.value);
+
+  return filtered.map((row) => {
+    const diferencia = Number(row.stock || 0) - Number(row.presupuesto || 0);
+    const cumplimientoPct =
+        Number(row.presupuesto || 0) > 0
+            ? (Number(row.stock || 0) / Number(row.presupuesto || 0)) * 100
+            : null;
+
+    return {
+      ...row,
+      diferencia,
+      cumplimientoPct
+    };
+  });
+});
+
+const captacionesStockBudgetChart = computed(() => {
+  const rows = captacionesStockBudgetRows.value;
+
+  return {
+    labels: rows.map((row) => row.producto),
+    datasets: [
+      {
+        type: 'bar',
+        label: 'Stock actual',
+        data: rows.map((row) => row.stock),
+        backgroundColor: '#26b460',
+        borderRadius: 10,
+        yAxisID: 'y',
+        metaRows: rows
+      },
+      {
+        type: 'bar',
+        label: 'Presupuesto',
+        data: rows.map((row) => row.presupuesto),
+        backgroundColor: '#8b5cf6',
+        borderRadius: 10,
+        yAxisID: 'y',
+        metaRows: rows
+      },
+      {
+        type: 'line',
+        label: 'Cumplimiento %',
+        data: rows.map((row) => row.cumplimientoPct),
+        borderColor: '#f59e0b',
+        backgroundColor: '#f59e0b',
+        borderWidth: 3,
+        tension: 0.35,
+        pointRadius: 5,
+        pointHoverRadius: 8,
+        yAxisID: 'y1',
+        metaRows: rows
+      }
+    ]
+  };
+});
+const captacionesStockBudgetOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  interaction: {
+    mode: 'index',
+    intersect: false
+  },
+  plugins: {
+    legend: {
+      display: true,
+      position: 'top',
+      labels: {
+        color: '#4a6355',
+        boxWidth: 12,
+        padding: 16,
+        usePointStyle: true
+      }
+    },
+    tooltip: {
+      ...tooltipBase,
+      callbacks: {
+        label: (ctx) => {
+          const row = ctx.dataset.metaRows?.[ctx.dataIndex];
+
+          if (!row) return '';
+
+          if (ctx.dataset.label === 'Cumplimiento %') {
+            return ` Cumplimiento: ${
+                row.cumplimientoPct === null || row.cumplimientoPct === undefined
+                    ? 'N/A'
+                    : `${Number(row.cumplimientoPct).toFixed(2)}%`
+            }`;
+          }
+
+          return ` ${ctx.dataset.label}: ${moneyFullNoDecimals(ctx.raw)}`;
+        },
+        afterBody: (items) => {
+          const first = items?.[0];
+
+          if (!first) return [];
+
+          const row = first.dataset.metaRows?.[first.dataIndex];
+
+          if (!row) return [];
+
+          return [
+            '',
+            `Diferencia: ${signedMoneyFullNoDecimals(row.diferencia)}`,
+            `Cumplimiento monto: ${moneyFullNoDecimals(row.stock)} / ${moneyFullNoDecimals(row.presupuesto)}`,
+            `Cumplimiento %: ${
+                row.cumplimientoPct === null || row.cumplimientoPct === undefined
+                    ? 'N/A'
+                    : `${Number(row.cumplimientoPct).toFixed(2)}%`
+            }`
+          ];
+        }
+      }
+    }
+  },
+  scales: {
+    x: {
+      grid: {color: 'rgba(15,31,22,.04)', drawBorder: false},
+      ticks: {
+        color: '#6f8177',
+        font: {size: 12, weight: '600'}
+      }
+    },
+    y: {
+      beginAtZero: true,
+      position: 'left',
+      grid: {color: 'rgba(15,31,22,.05)', drawBorder: false},
+      ticks: {
+        color: '#6f8177',
+        callback: (value) => moneyFullNoDecimals(value)
+      }
+    },
+    y1: {
+      beginAtZero: true,
+      position: 'right',
+      grid: {
+        drawOnChartArea: false
+      },
+      ticks: {
+        color: '#6f8177',
+        callback: (value) => `${Number(value).toFixed(0)}%`
+      }
+    }
+  }
+};
 // ─────────────────────────────────────────────────────────────
 // Carga de datos
 // ─────────────────────────────────────────────────────────────
@@ -1797,8 +4306,13 @@ async function loadAll() {
       projectionRes,
       benchmarkRes,
       marketRes,
+      sharedPortfolioRes,
       oficialesRes,
-      fuentesRes
+      fuentesRes,
+      pdRiskRes,
+      pdRiskHistoryRes,
+      captacionesRes,
+      captacionesHistoricoRes
     ] = await Promise.all([
       api.health().catch(() => ({mode: 'offline'})),
       api.catalogs(),
@@ -1806,11 +4320,19 @@ async function loadAll() {
       api.kpis(params),
       api.kpisByProduct(params),
       api.timeseries(params),
-      api.projection(scenario.value, params),
+      fetchMergedProjection(params),
       api.benchmark(params),
       api.marketShare(params),
+      api.sharedPortfolio(params).catch(() => ({data: []})),
       api.oficiales(params),
-      api.fuentes()
+      api.fuentes(),
+      api.pdRisk(params),
+      api.pdRiskHistory(params).catch(() => ({data: []})),
+      api.captaciones(params).catch(() => ({data: []})),
+      api.captacionesHistorico({
+        sucursal: filtersApplied.value.sucursal,
+        agencia: filtersApplied.value.agencia
+      }).catch(() => ({data: []}))
     ]);
 
     dataMode.value = health.mode || summaryRes.mode || 'mock';
@@ -1829,23 +4351,19 @@ async function loadAll() {
     projection.value = projectionRes.data;
     benchmark.value = benchmarkRes.data;
     marketShare.value = marketRes.data;
+    sharedPortfolio.value = sharedPortfolioRes.data;
     oficiales.value = oficialesRes.data;
     fuentes.value = fuentesRes.data;
-
+    pdRisk.value = pdRiskRes.data;
+    pdRiskHistory.value = pdRiskHistoryRes.data;
+    captaciones.value = captacionesRes.data;
+    captacionesHistorico.value = captacionesHistoricoRes.data;
     await loadProjectionByProduct();
   } finally {
     loading.value = false;
   }
 }
 
-async function loadProjectionByProduct() {
-  for (const prod of selectedProjProducts.value) {
-    if (!projectionProductData.value[prod]) {
-      const res = await api.projectionByProduct(scenario.value, prod);
-      projectionProductData.value[prod] = res.data;
-    }
-  }
-}
 
 async function toggleProjProduct(product) {
   if (selectedProjProducts.value.includes(product)) {
@@ -1856,13 +4374,13 @@ async function toggleProjProduct(product) {
   selectedProjProducts.value.push(product);
 
   if (!projectionProductData.value[product]) {
-    const res = await api.projectionByProduct(scenario.value, product);
-    projectionProductData.value[product] = res.data;
+    try {
+      projectionProductData.value[product] = await fetchMergedProjectionByProduct(product);
+    } catch (error) {
+      console.error('projectionByProduct error:', product, error);
+      projectionProductData.value[product] = [];
+    }
   }
-}
-
-async function changeScenario(nextScenario) {
-  scenario.value = nextScenario;
 
   const response = await api.projection(nextScenario, filtersApplied.value);
   projection.value = response.data;
@@ -1908,14 +4426,18 @@ async function sendChat(message = chatInput.value) {
   chatLoading.value = true;
 
   try {
-    const finalMessage = buildMessageWithMemory(text);
+    const finalMessage = useMcp.value
+        ? buildMessageForMcp(text)
+        : buildMessageForNormalChat(text);
     const response = await api.agentQuery(finalMessage, useMcp.value);
     const answer = response.data.answer;
 
     chat.value.push({role: 'bot', text: answer});
     addToChatMemory('bot', answer);
-  } catch {
-    const errorText = 'No pude conectar con el backend del agente. Revisa que el servidor este activo.';
+  } catch (error) {
+    const errorText = useMcp.value
+        ? 'No pude conectar con el agente MCP. Revisa AnythingLLM, Ollama y la configuración del MCP.'
+        : 'No pude conectar con el chat normal. Revisa AnythingLLM y Ollama.';
 
     chat.value.push({
       role: 'bot',
@@ -1980,7 +4502,7 @@ function progressValue(value) {
 }
 
 function amountK(value) {
-  const n = Number(value || 0) / 1000 / USD_TO_BOB;
+  const n = Number(value || 0);
 
   return n.toLocaleString('en-US', {
     minimumFractionDigits: 0,
@@ -1989,7 +4511,7 @@ function amountK(value) {
 }
 
 function moneyKFull(value) {
-  const n = Number(value || 0) / 1000 / USD_TO_BOB;
+  const n = Number(value || 0);
 
   return `$${n.toLocaleString('en-US', {
     minimumFractionDigits: 0,
@@ -1998,7 +4520,7 @@ function moneyKFull(value) {
 }
 
 function signedMoneyK(value) {
-  const n = Number(value || 0) / 1000 / USD_TO_BOB;
+  const n = Number(value || 0);
   const sign = n > 0 ? '+' : n < 0 ? '-' : '';
 
   return `${sign}$${Math.abs(n).toLocaleString('en-US', {
@@ -2068,8 +4590,8 @@ onMounted(async () => {
           <div v-else class="nav-group">
             <button
                 class="nav-group-title"
-                :class="{ active: active === section.id }"
-                @click="setActive(section.id)"
+                :class="{ active: section.children?.some(child => child.id === active) }"
+                @click="section.groupOnly ? null : setActive(section.id)"
             >
               <font-awesome-icon :icon="section.icon"/>
               <span>{{ section.label }}</span>
@@ -2119,13 +4641,6 @@ onMounted(async () => {
         <div>
           <p>Banco Nacional de Bolivia</p>
           <h1>{{ activeTitle }}</h1>
-        </div>
-        <div class="topbar-actions">
-          <Dropdown v-model="selectedPeriod" :options="periods" class="period-select"/>
-          <Tag
-              :severity="dataMode === 'sql-server' ? 'success' : 'warning'"
-              :value="dataMode === 'sql-server' ? 'En vivo' : 'Demo'"
-          />
         </div>
       </header>
 
@@ -2271,8 +4786,9 @@ onMounted(async () => {
                 </div>
               </template>
               <template #content>
-                <div class="chart-box chart-box-stock-budget">
-                  <Chart type="line" :data="flowChart" :options="portadaFlowChartOptions"/>
+                <div class="chart-box">
+                  <Chart type="line" :data="flowChart" :options="portadaFlowChartOptions"
+                         style="width: 100%; height: 100%;"/>
                 </div>
               </template>
             </Card>
@@ -2286,8 +4802,8 @@ onMounted(async () => {
                     <font-awesome-icon icon="chart-simple"/>
                   </div>
                   <div>
-                    <strong>Stock y meta por producto</strong>
-                    <small>Composición de cartera + cumplimiento contra presupuesto</small>
+                    <strong>Cascada de brecha por producto</strong>
+                    <small>Diferencia de stock actual contra meta presupuesto</small>
                   </div>
                 </div>
               </template>
@@ -2297,6 +4813,7 @@ onMounted(async () => {
                       type="bar"
                       :data="portadaProductGoalChart"
                       :options="portadaProductGoalOptions"
+                      style="width: 100%; height: 100%;"
                   />
                 </div>
               </template>
@@ -2312,7 +4829,11 @@ onMounted(async () => {
                   </div>
                   <div>
                     <strong>Líder en crecimiento por producto</strong>
-                    <small>Banco con mayor crecimiento total por producto</small>
+                    <small>
+                      Banco con mayor crecimiento total por producto · Corte SF <strong>{{
+                        portadaGrowthLeadersPeriod
+                      }}</strong>
+                    </small>
                   </div>
                 </div>
               </template>
@@ -2328,251 +4849,67 @@ onMounted(async () => {
                         <i class="pi pi-trophy"></i>
                         <span>#{{ index + 1 }}</span>
                       </div>
-                      <Tag severity="info" :value="item.banco"/>
+
+                      <div class="growth-head-tags">
+                        <Tag severity="info" :value="item.banco"/>
+                      </div>
                     </div>
 
                     <div class="growth-leader-body">
                       <strong>{{ item.producto }}</strong>
-                      <span class="growth-bank">{{ item.banco }}</span>
+                      <span class="growth-bank">
+      Líder: {{ item.banco }}
+    </span>
                     </div>
 
                     <div class="growth-leader-metrics">
                       <div>
-                        <small>Crecimiento monto</small>
-                        <strong>{{ moneyFull(item.crecimientoTotal) }}</strong>
+                        <small>Crecimiento líder</small>
+                        <strong :class="trendClass(item.crecimientoTotal)">
+                          {{ signedMoneyK(item.crecimientoTotal) }}
+                        </strong>
                       </div>
+
                       <div>
-                        <small>Crecimiento %</small>
+                        <small>Crecimiento % líder</small>
                         <strong :class="trendClass(item.crecimientoPct)">
                           {{ item.crecimientoPct > 0 ? '+' : '' }}{{ percent(item.crecimientoPct) }}
                         </strong>
                       </div>
-                    </div>
-                  </div>
-                </div>
-              </template>
-            </Card>
-          </div>
 
-          <div class="section-header">
-            <div>
-              <span>Detalle resumido</span>
-              <h3>Productos, oficiales y fuentes</h3>
-            </div>
-          </div>
-
-          <div class="summary-detail-grid">
-            <Card class="elevated-card">
-              <template #title>
-                <div class="card-title-rich">
-                  <div class="card-title-icon bg-green">
-                    <font-awesome-icon icon="table-cells"/>
-                  </div>
-                  <div>
-                    <strong>Top 5 productos por stock</strong>
-                    <small>Resumen comercial</small>
-                  </div>
-                </div>
-              </template>
-              <template #content>
-                <div class="spotlight-list">
-                  <div
-                      v-for="(data, index) in portadaTopProducts"
-                      :key="data.producto"
-                      class="spotlight-item"
-                  >
-                    <div class="spotlight-rank">
-                      <span>{{ index + 1 }}</span>
-                    </div>
-
-                    <div class="spotlight-main">
-                      <strong>{{ data.producto }}</strong>
-                      <div class="spotlight-meta">
-                        <span><i class="pi pi-wallet"></i> {{ moneyFull(data.stock) }}</span>
-                        <span><i class="pi pi-chart-bar"></i> {{ percent(data.cumplimientoPct) }}</span>
-                        <span :class="trendClass(data.crecimientoPct)">
-                  <i class="pi pi-arrow-up-right"></i>
-                  {{ data.crecimientoPct > 0 ? '+' : '' }}{{ percent(data.crecimientoPct) }}
-                </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </template>
-            </Card>
-
-            <Card class="elevated-card">
-              <template #title>
-                <div class="card-title-rich">
-                  <div class="card-title-icon bg-purple">
-                    <font-awesome-icon icon="user-tie"/>
-                  </div>
-                  <div>
-                    <strong>Top 5 oficiales por desembolso</strong>
-                    <small>Ranking comercial</small>
-                  </div>
-                </div>
-              </template>
-              <template #content>
-                <div class="spotlight-list">
-                  <div
-                      v-for="(data, index) in portadaTopOfficials"
-                      :key="`${data.oficial}-${index}`"
-                      class="spotlight-item spotlight-official"
-                  >
-                    <div class="spotlight-rank">
-                      <i class="pi pi-star-fill"></i>
-                      <span>{{ index + 1 }}</span>
-                    </div>
-
-                    <div class="spotlight-main">
-                      <strong>{{ data.oficial }}</strong>
-                      <div class="spotlight-meta">
-                        <span><i class="pi pi-building"></i> {{ data.nombreAgencia }}</span>
-                        <span><i class="pi pi-map-marker"></i> {{ data.sucursal }}</span>
-                        <span><i class="pi pi-dollar"></i> {{ formatDesembolsoMiles(data.desembolso) }}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </template>
-            </Card>
-
-            <Card class="elevated-card">
-              <template #title>
-                <div class="card-title-rich">
-                  <div class="card-title-icon bg-amber">
-                    <font-awesome-icon icon="database"/>
-                  </div>
-                  <div>
-                    <strong>Fuentes activas</strong>
-                    <small>Control de actualización</small>
-                  </div>
-                </div>
-              </template>
-              <template #content>
-                <div class="source-status-list">
-                  <div class="source-status-item">
-                    <div class="source-status-left">
-                      <i class="pi pi-check-circle"></i>
                       <div>
-                        <strong>Cartera BNB</strong>
-                        <span>Hub_CarteraBNB</span>
+                        <small>Posición BNB</small>
+                        <strong>
+                          {{ item.bnbPosicion ? `#${item.bnbPosicion} de ${item.totalBancos}` : 'N/D' }}
+                        </strong>
                       </div>
-                    </div>
-                    <Tag severity="success"
-                         :value="dateIso(fuentes.find(f => f.fuente === 'Hub_CarteraBNB')?.fechaCorte) || 'N/D'"/>
-                  </div>
 
-                  <div class="source-status-item">
-                    <div class="source-status-left">
-                      <i class="pi pi-check-circle"></i>
                       <div>
-                        <strong>Sistema financiero</strong>
-                        <span>Hub_CarteraSF</span>
+                        <small>Crecimiento BNB</small>
+                        <strong :class="trendClass(item.bnbCrecimientoTotal)">
+                          {{ item.bnbCrecimientoTotal === null ? 'N/D' : signedMoneyK(item.bnbCrecimientoTotal) }}
+                        </strong>
                       </div>
-                    </div>
-                    <Tag severity="info"
-                         :value="dateIso(fuentes.find(f => f.fuente === 'Hub_CarteraSF')?.fechaCorte) || 'N/D'"/>
-                  </div>
 
-                  <div class="source-status-item">
-                    <div class="source-status-left">
-                      <i class="pi pi-check-circle"></i>
                       <div>
-                        <strong>Oficiales</strong>
-                        <span>Hub_OONN</span>
+                        <small>Crecimiento % BNB</small>
+                        <strong :class="trendClass(item.bnbCrecimientoPct)">
+                          {{
+                            item.bnbCrecimientoPct === null || item.bnbCrecimientoPct === undefined
+                                ? 'N/D'
+                                : `${item.bnbCrecimientoPct > 0 ? '+' : ''}${percent(item.bnbCrecimientoPct)}`
+                          }}
+                        </strong>
                       </div>
-                    </div>
-                    <Tag severity="warning"
-                         :value="dateIso(fuentes.find(f => f.fuente === 'Hub_OONN')?.fechaCorte) || 'N/D'"/>
-                  </div>
 
-                  <div class="source-status-item total-update">
-                    <div class="source-status-left">
-                      <i class="pi pi-clock"></i>
                       <div>
-                        <strong>Última actualización consolidada</strong>
-                        <span>Resumen general</span>
+                        <small>Crecimiento total sistema</small>
+                        <strong :class="trendClass(item.crecimientoSistemaTotal)">
+                          {{ signedMoneyK(item.crecimientoSistemaTotal) }}
+                        </strong>
                       </div>
                     </div>
-                    <Tag severity="contrast" :value="portadaUpdatedAt"/>
                   </div>
-                </div>
-              </template>
-            </Card>
-          </div>
-        </section>
-
-        <!-- ═══ CARTERA ═══════════════════════════════════════════════════════ -->
-        <section v-show="active === 'cartera'" class="page-grid page-grid-enter">
-          <div class="section-header">
-            <div><span>Cartera</span>
-              <h3>Vista integral del dominio comercial</h3></div>
-            <Tag severity="success" value="Interactivo"/>
-          </div>
-
-          <Divider class="section-rule"/>
-
-          <div class="overview-grid">
-            <Card v-for="item in carteraSnapshot" :key="item.label" class="overview-card">
-              <template #content>
-                <font-awesome-icon :icon="item.icon"/>
-                <span>{{ item.label }}</span>
-                <strong>{{ item.value }}</strong>
-                <small>{{ item.helper }}</small>
-              </template>
-            </Card>
-          </div>
-
-          <div class="system-grid">
-            <Card class="chart-flow-full">
-              <template #title>
-                <div class="card-title-row">
-                  <span>Evolucion stock vs presupuesto</span>
-                  <Dropdown v-model="chartFilters.projectionProduct" :options="catalogs.productosBNB"
-                            class="mini-select"/>
-                </div>
-              </template>
-              <template #content>
-                <div class="chart-box chart-box-flow">
-                  <Chart type="line" :data="flowChart" :options="chartOptions"/>
-                </div>
-              </template>
-            </Card>
-            <Card>
-              <template #title>Accesos de cartera</template>
-              <template #content>
-                <div class="module-actions">
-                  <Button label="KPIs ejecutivos" icon="pi pi-chart-line" @click="setActive('kpis')"/>
-                  <Button label="Proyeccion" icon="pi pi-arrow-up-right" outlined @click="setActive('proyeccion')"/>
-                  <Button label="Sistema financiero" icon="pi pi-table" outlined @click="setActive('sistema')"/>
-                  <Button label="Agente IA" icon="pi pi-comments" outlined @click="setActive('agente')"/>
-                </div>
-              </template>
-            </Card>
-          </div>
-
-          <div class="system-grid">
-            <Card>
-              <template #title>Participación BNB por producto (%)</template>
-              <template #content>
-                <div class="chart-box compact">
-                  <Chart type="bar" :data="marketChart" :options="pctChartOptions"/>
-                </div>
-              </template>
-            </Card>
-            <Card>
-              <template #title>Reglas de interpretación</template>
-              <template #content>
-                <div class="rule-note-list">
-                  <div><strong>CONSUMO SF</strong><span>Agrupa consumo, vehicular y tarjetas de crédito en sistema financiero.</span>
-                  </div>
-                  <div><strong>Cumplimiento</strong><span>stock / presupuesto × 100. Si presupuesto = 0 → N/A.</span>
-                  </div>
-                  <div><strong>BNB en mercado</strong><span>Código exacto <code>sf.banco = 'BNB'</code> en Hub_CarteraSF.</span>
-                  </div>
-                  <div><strong>Montos</strong><span>Todos los valores monetarios expresados en USD.</span></div>
                 </div>
               </template>
             </Card>
@@ -2641,7 +4978,7 @@ onMounted(async () => {
                 <div class="org-level org-level-manager">
                   <div class="org-node org-node-manager">
                     <div class="org-avatar">
-                      <font-awesome-icon :icon="orgArea.gerente.icon"/>
+                      <img :src="ronyImg" alt="Rony" class="org-avatar-img"/>
                     </div>
                     <div class="org-info">
                       <strong>{{ orgArea.gerente.nombre }}</strong>
@@ -2665,7 +5002,7 @@ onMounted(async () => {
 
                     <div class="org-node org-node-member" :class="`org-tone-${member.tone}`">
                       <div class="org-avatar">
-                        <font-awesome-icon :icon="member.icon"/>
+                        <img :src=member.img alt="Rony" class="org-avatar-img"/>
                       </div>
 
                       <div class="org-info">
@@ -2701,29 +5038,145 @@ onMounted(async () => {
         </section>
 
         <!-- ═══ KPIs ══════════════════════════════════════════════════════════ -->
-        <section v-show="active === 'kpis'" class="page-grid">
+        <section v-show="active === 'desempeno'" class="page-grid">
           <div class="section-header">
-            <div><span>Cartera</span>
-              <h3>KPIs ejecutivos</h3></div>
+            <div>
+              <span>Cartera · Desempeño comercial</span>
+              <h3>Lectura ejecutiva del portafolio</h3>
+            </div>
             <Tag severity="info" :value="dateIso(summary?.fechaCorte) || 'N/D'"/>
           </div>
 
-          <div class="kpi-grid">
-            <Card v-for="kpi in kpis" :key="kpi.key" class="kpi-card" :class="kpiSeverityClass[kpi.severity]">
+          <div class="performance-hero">
+            <Card class="performance-main-card" style="margin-bottom: 10px">
               <template #content>
-                <div class="kpi-top">
-                  <span>{{ kpi.label }}</span>
-                  <font-awesome-icon :icon="kpi.icon"/>
+                <div class="performance-main-top">
+                  <div>
+                    <span class="section-kicker">Resultado del portafolio</span>
+
+                    <h2
+                        class="performance-main-amount"
+                        :class="Number(summary?.brechaPresupuesto || 0) >= 0 ? 'amount-positive' : 'amount-negative'"
+                    >
+                      {{ signedMoneyFull(summary?.brechaPresupuesto) }}
+                    </h2>
+
+                    <p>Brecha de stock actual contra presupuesto vigente.</p>
+
+                    <div class="performance-main-metrics">
+                      <div>
+                        <span>Cumplimiento</span>
+                        <strong :class="Number(summary?.cumplimientoPct || 0) >= 100 ? 'text-green' : 'text-danger'">
+                          {{ percent(summary?.cumplimientoPct) }}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span>Crecimiento a diciembre</span>
+                        <strong :class="trendClass(summary?.crecimientoNominal)">
+                          {{ signedMoneyFull(summary?.crecimientoNominal) }}
+                        </strong>
+                        <small>
+                          {{ summary?.crecimientoPct > 0 ? '+' : '' }}{{ percent(summary?.crecimientoPct) }}
+                          contra base Dic-25
+                        </small>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                      class="performance-score"
+                      :class="Number(summary?.cumplimientoPct || 0) >= 100 ? 'is-good' : 'is-risk'"
+                  >
+                    <font-awesome-icon
+                        :icon="Number(summary?.cumplimientoPct || 0) >= 100 ? 'circle-check' : 'triangle-exclamation'"
+                    />
+                    <strong>{{ Number(summary?.cumplimientoPct || 0) >= 100 ? 'Meta alcanzada' : 'Bajo meta' }}</strong>
+                  </div>
                 </div>
-                <strong>{{ kpiValue(kpi) }}</strong>
-                <small :class="trendClass(kpi.delta)">
-                  {{ kpi.delta === null || kpi.delta === undefined ? 'Meta vigente' : percent(kpi.delta) }}
-                  <span>{{ kpi.deltaLabel }}</span>
-                </small>
+
+                <div class="performance-progress">
+                  <div class="performance-progress-track">
+                    <div
+                        class="performance-progress-fill"
+                        :class="Number(summary?.cumplimientoPct || 0) >= 100 ? 'fill-good' : 'fill-risk'"
+                        :style="{ width: Math.min(Math.max(Number(summary?.cumplimientoPct || 0), 0), 120) / 120 * 100 + '%' }"
+                    ></div>
+                    <span class="performance-progress-marker"></span>
+                  </div>
+                  <div class="performance-progress-labels">
+                    <span>0%</span>
+                    <strong>100% meta</strong>
+                    <span>120%</span>
+                  </div>
+                </div>
+              </template>
+            </Card>
+
+            <div class="performance-side-grid">
+              <Card class="performance-mini-card">
+                <template #content>
+                  <div class="metric-card-stack">
+                    <span class="metric-card-label">Stock actual</span>
+                    <strong class="metric-card-value">{{ moneyFull(summary?.stockActual) }}</strong>
+                    <small class="metric-card-helper">Cartera vigente al corte</small>
+                  </div>
+                </template>
+              </Card>
+
+              <Card class="performance-mini-card">
+                <template #content>
+                  <div class="metric-card-stack">
+                    <span class="metric-card-label">Presupuesto</span>
+                    <strong class="metric-card-value">{{ moneyFull(summary?.presupuesto) }}</strong>
+                    <small class="metric-card-helper">Meta vigente de stock</small>
+                  </div>
+                </template>
+              </Card>
+            </div>
+          </div>
+          <div class="performance-diagnosis-grid">
+            <Card class="diagnosis-card">
+              <template #content>
+                <div class="diagnosis-icon bg-green">
+                  <font-awesome-icon icon="sack-dollar"/>
+                </div>
+                <div>
+                  <span>Desembolsos acumulados</span>
+                  <strong>{{ moneyFull(summary?.desembolsosAcum) }}</strong>
+                  <small>Ritmo comercial acumulado del año</small>
+                </div>
+              </template>
+            </Card>
+
+            <Card class="diagnosis-card">
+              <template #content>
+                <div class="diagnosis-icon bg-amber">
+                  <font-awesome-icon icon="rotate"/>
+                </div>
+                <div>
+                  <span>Amortización acumulada</span>
+                  <strong>{{ moneyFull(summary?.amortizacion) }}</strong>
+                  <small>Salida acumulada de cartera</small>
+                </div>
+              </template>
+            </Card>
+
+            <Card class="diagnosis-card">
+              <template #content>
+                <div class="diagnosis-icon bg-purple">
+                  <font-awesome-icon icon="chart-line"/>
+                </div>
+                <div>
+                  <span>Crecimiento nominal</span>
+                  <strong :class="trendClass(summary?.crecimientoNominal)">
+                    {{ signedMoneyFull(summary?.crecimientoNominal) }}
+                  </strong>
+                  <small>Variación contra base Dic-25</small>
+                </div>
               </template>
             </Card>
           </div>
-
           <Card class="mt-4">
             <template #title>Detalle por producto</template>
             <template #content>
@@ -2735,7 +5188,7 @@ onMounted(async () => {
                   :sortOrder="-1"
                   showGridlines
               >
-                <Column field="producto" header="Producto" footer="Totales">
+                <Column field="producto" header="Producto" footer="">
                   <template #body="{ data }">
                     <strong>{{ data.producto }}</strong>
                   </template>
@@ -2753,7 +5206,7 @@ onMounted(async () => {
                   </template>
                 </Column>
 
-                <Column field="crecimientoPct" header="Crecimiento %">
+                <Column field="crecimientoPct" header="%Crec. vs Dic">
                   <template #body="{ data }">
       <span :class="trendClass(data.crecimientoPct)">
         {{ data.crecimientoPct > 0 ? '+' : '' }}{{ percent(data.crecimientoPct) }}
@@ -2766,7 +5219,7 @@ onMounted(async () => {
                   </template>
                 </Column>
 
-                <Column field="crecimientoMonto" header="Crecimiento Monto">
+                <Column field="crecimientoMonto" header="Crec. vs Dic">
                   <template #body="{ data }">
     <span :class="trendClass(productGrowthAmount(data))">
       {{ signedMoneyFull(productGrowthAmount(data)) }}
@@ -2806,7 +5259,21 @@ onMounted(async () => {
                     <strong>{{ moneyFull(productTotals.presupuesto) }}</strong>
                   </template>
                 </Column>
+                <Column field="diferenciaPresupuesto" header="Brecha">
+                  <template #body="{ data }">
+                    <strong
+                        :class="Number(data.stock || 0) - Number(data.presupuesto || 0) >= 0 ? 'text-green' : 'text-danger'">
+                      {{ signedMoneyFull(Number(data.stock || 0) - Number(data.presupuesto || 0)) }}
+                    </strong>
+                  </template>
 
+                  <template #footer>
+                    <strong
+                        :class="Number(productTotals.stock || 0) - Number(productTotals.presupuesto || 0) >= 0 ? 'text-green' : 'text-danger'">
+                      {{ signedMoneyFull(Number(productTotals.stock || 0) - Number(productTotals.presupuesto || 0)) }}
+                    </strong>
+                  </template>
+                </Column>
                 <Column field="cumplimientoPct" header="Cumplimiento">
                   <template #body="{ data }">
                     <div class="compliance-cell">
@@ -2900,60 +5367,366 @@ onMounted(async () => {
           </Card>
         </section>
 
+        <!-- ═══ RIESGO PREDICTIVO ═══════════════════════════════════════════════ -->
+        <section v-show="active === 'riesgo-pd'" class="page-grid">
+          <div class="section-header">
+            <div>
+              <span>Cartera · Riesgo predictivo</span>
+              <h3>Alertas tempranas de probabilidad de mora</h3>
+            </div>
+            <Tag severity="danger" :value="dateIso(pdRisk?.[0]?.fecha) || 'N/D'"/>
+          </div>
+
+          <div class="risk-story-hero">
+            <Card class="risk-main-card">
+              <template #content>
+                <div class="risk-main-copy">
+                  <span class="section-kicker">Lectura gerencial</span>
+                  <h2>{{ pdRiskTotals.alto.toLocaleString('en-US') }}</h2>
+                  <p>Operaciones con alta probabilidad de caer en mora el siguiente mes.</p>
+                </div>
+
+                <div class="risk-main-status">
+                  <div>
+                    <span>Participación alta</span>
+                    <strong>{{ percent(pdRiskTotals.altoPct) }}</strong>
+                  </div>
+                  <div>
+                    <span>Total evaluado</span>
+                    <strong>{{ pdRiskTotals.total.toLocaleString('en-US') }}</strong>
+                  </div>
+                </div>
+              </template>
+            </Card>
+
+            <Card class="risk-mini-card risk-high">
+              <template #content>
+                <span>Alta</span>
+                <div style="display: flex;flex-direction: column"><strong>{{
+                    pdRiskTotals.alto.toLocaleString('en-US')
+                  }}</strong>
+                  <small>{{ percent(pdRiskTotals.altoPct) }} del total</small></div>
+
+              </template>
+            </Card>
+
+            <Card class="risk-mini-card risk-mid">
+              <template #content>
+                <span>Media</span>
+                <div style="display: flex;flex-direction: column">
+                  <strong>{{ pdRiskTotals.media.toLocaleString('en-US') }}</strong>
+                  <small>{{ percent(pdRiskTotals.mediaPct) }} del total</small></div>
+              </template>
+            </Card>
+
+            <Card class="risk-mini-card risk-low">
+              <template #content>
+                <span>Baja</span>
+                <div style="display: flex;flex-direction: column">
+                  <strong>{{ pdRiskTotals.baja.toLocaleString('en-US') }}</strong>
+                  <small>{{ percent(pdRiskTotals.bajaPct) }} del total</small></div>
+              </template>
+            </Card>
+          </div>
+          <Card class="elevated-card risk-history-card">
+            <template #title>
+              <div class="card-title-rich">
+                <div class="card-title-icon bg-red">
+                  <font-awesome-icon icon="chart-line"/>
+                </div>
+                <div>
+                  <strong>Evolución histórica de riesgo operativo</strong>
+                  <small>Alta y media probabilidad según histórico disponible</small>
+                </div>
+              </div>
+            </template>
+
+            <template #content>
+              <div class="chart-box risk-history-chart">
+                <Chart
+                    type="line"
+                    :data="pdRiskHistoryChart"
+                    :options="pdRiskHistoryLineOptions"
+                    style="width: 100%; height: 100%;"
+                />
+              </div>
+            </template>
+          </Card>
+          <Card class="elevated-card">
+            <template #title>
+              <div class="card-title-rich">
+                <div class="card-title-icon bg-red">
+                  <font-awesome-icon icon="building-columns"/>
+                </div>
+                <div>
+                  <strong>Sucursales con mayor concentración de riesgo alto</strong>
+                  <small>Top 10 por cantidad de operaciones en alta probabilidad</small>
+                </div>
+              </div>
+            </template>
+            <template #content>
+              <div class="chart-box chart-box-product-goal">
+                <Chart type="bar" :data="pdRiskSucursalChart" :options="pdRiskBarOptions"
+                       style="width: 100%; height: 100%;"/>
+              </div>
+            </template>
+          </Card>
+
+          <Card class="elevated-card">
+            <template #title>
+              <div class="card-title-rich">
+                <div class="card-title-icon bg-purple">
+                  <font-awesome-icon icon="table-cells"/>
+                </div>
+                <div>
+                  <strong>Detalle crítico por agencia</strong>
+                  <small>Priorizado por operaciones con alta probabilidad</small>
+                </div>
+              </div>
+            </template>
+            <template #content>
+              <DataTable
+                  :value="pdRiskCriticalAgencies"
+                  responsive-layout="scroll"
+                  showGridlines
+                  sortField="alto"
+                  :sortOrder="-1"
+              >
+                <Column field="sucursal" header="Sucursal"/>
+                <Column field="nombreAgencia" header="Agencia"/>
+                <Column field="producto" header="Producto"/>
+
+                <Column field="alto" header="Alta">
+                  <template #body="{ data }">
+                    <strong class="text-danger">{{ Number(data.alto || 0).toLocaleString('en-US') }}</strong>
+                  </template>
+                </Column>
+
+                <Column field="media" header="Media">
+                  <template #body="{ data }">
+                    <strong>{{ Number(data.media || 0).toLocaleString('en-US') }}</strong>
+                  </template>
+                </Column>
+
+                <Column field="baja" header="Baja">
+                  <template #body="{ data }">
+                    {{ Number(data.baja || 0).toLocaleString('en-US') }}
+                  </template>
+                </Column>
+
+                <Column field="totalOperaciones" header="Total">
+                  <template #body="{ data }">
+                    {{ Number(data.totalOperaciones || 0).toLocaleString('en-US') }}
+                  </template>
+                </Column>
+
+                <Column field="altoPct" header="% Alta">
+                  <template #body="{ data }">
+                    <Tag
+                        :severity="Number(data.altoPct || 0) >= 40 ? 'danger' : Number(data.altoPct || 0) >= 20 ? 'warning' : 'success'"
+                        :value="percent(data.altoPct)"
+                    />
+                  </template>
+                </Column>
+              </DataTable>
+            </template>
+          </Card>
+        </section>
+
         <!-- ═══ PROYECCIÓN ════════════════════════════════════════════════════ -->
         <section v-show="active === 'proyeccion'" class="page-grid">
           <div class="section-header">
-            <div><span>Escenarios</span>
-              <h3>Proyeccion financiera 2026</h3></div>
-            <div class="scenario-actions">
-              <Button
-                  v-for="item in scenarios"
-                  :key="item.value"
-                  :label="item.label"
-                  :outlined="scenario !== item.value"
-                  @click="changeScenario(item.value)"
-              />
+            <div>
+              <span>Escenarios</span>
+              <h3>Proyección financiera 2026</h3>
             </div>
+            <Tag severity="info" value="Escenarios independientes"/>
           </div>
 
-          <div class="chart-filter-card">
-            <div>
-              <label>Métrica del gráfico</label>
-              <Dropdown v-model="chartFilters.projectionMetric" :options="projectionMetrics" append-to="body"/>
+          <div class="chart-filter-card" style="display: flex; align-items: flex-end; gap: 1rem; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 200px;">
+              <label style="display: block; margin-bottom: 0.5rem;">Métrica del gráfico</label>
+              <Dropdown
+                  v-model="draftProjectionMetric"
+                  :options="projectionMetrics"
+                  append-to="body"
+                  style="width: 100%;"
+              />
             </div>
-            <div class="proj-products">
-              <label>Desglose por producto</label>
-              <div class="chip-list">
-                <button
-                    v-for="prod in catalogs.productosBNB.filter((p) => p !== 'TODOS')"
-                    :key="prod"
-                    class="prod-chip"
-                    :class="{ active: selectedProjProducts.includes(prod) }"
-                    @click="toggleProjProduct(prod)"
-                >
-                  {{ prod }}
-                </button>
-              </div>
+
+            <div class="proj-products" style="flex: 2; min-width: 300px;">
+              <label style="display: block; margin-bottom: 0.5rem;">Desglose por producto</label>
+              <MultiSelect
+                  v-model="draftSelectedProjProducts"
+                  :options="catalogs.productosBNB.filter((p) => p !== 'TODOS')"
+                  placeholder="Seleccione productos"
+                  :maxSelectedLabels="3"
+                  display="chip"
+                  append-to="body"
+                  style="width: 100%;"
+              />
+            </div>
+            <div style="flex: 1; min-width: 180px;">
+              <label style="display: block; margin-bottom: 0.5rem;">Escenario desembolsos</label>
+              <Dropdown
+                  v-model="draftDesembolsoScenario"
+                  :options="scenarios"
+                  optionLabel="label"
+                  optionValue="value"
+                  append-to="body"
+                  style="width: 100%;"
+              />
+            </div>
+
+            <div style="flex: 1; min-width: 180px;">
+              <label style="display: block; margin-bottom: 0.5rem;">Escenario amortización</label>
+              <Dropdown
+                  v-model="draftAmortizacionScenario"
+                  :options="scenarios"
+                  optionLabel="label"
+                  optionValue="value"
+                  append-to="body"
+                  style="width: 100%;"
+              />
+            </div>
+            <div>
+              <Button
+                  label="Aplicar"
+                  icon="pi pi-check"
+                  @click="applyProjectionFilters"
+              />
             </div>
           </div>
 
           <Card>
             <template #content>
-              <div class="proy-legend">
-                <div v-for="ds in projectionChart.datasets" :key="ds.label" class="proy-leg-item">
-                  <div
-                      class="proy-leg-line"
-                      :class="{ dashed: !!ds.borderDash, solid: !ds.borderDash }"
-                      :style="{ background: !ds.borderDash ? ds.borderColor : 'transparent', borderColor: ds.borderColor }"
-                  ></div>
-                  <span>{{ ds.label }}</span>
-                </div>
-              </div>
-              <div class="chart-box">
-                <Chart type="line" :data="projectionChart" :options="chartOptions"/>
+              <div class="chart-box" style="height: 500px;">
+                <Chart
+                    type="line"
+                    :data="projectionChart"
+                    :options="projectionChartOptions"
+                    style="height: 100%; width: 100%;"
+                />
               </div>
             </template>
           </Card>
+          <div class="projection-summary-grid projection-summary-grid-six">
+            <Card class="projection-summary-card">
+              <template #content>
+                <div class="projection-summary-stack">
+                  <span class="projection-summary-label">Stock actual</span>
+                  <strong class="projection-summary-value">
+                    {{ moneyFull(projectionYearSummary.stockActual) }}
+                  </strong>
+                  <small class="projection-summary-helper">Productos seleccionados</small>
+                </div>
+              </template>
+            </Card>
+
+            <Card class="projection-summary-card">
+              <template #content>
+                <div class="projection-summary-stack">
+                  <span class="projection-summary-label">Desembolsos 2026</span>
+                  <strong class="projection-summary-value">
+                    {{ moneyFull(projectionYearSummary.totalDesembolsoAnio) }}
+                  </strong>
+
+                  <div class="projection-summary-split">
+                    <span>Real: <b>{{ moneyFull(projectionYearSummary.desembolsoReal) }}</b></span>
+                    <span>Proy.: <b>{{ moneyFull(projectionYearSummary.desembolsoProyectado) }}</b></span>
+                  </div>
+                </div>
+              </template>
+            </Card>
+
+            <Card class="projection-summary-card">
+              <template #content>
+                <div class="projection-summary-stack">
+                  <span class="projection-summary-label">Amortizaciones 2026</span>
+                  <strong class="projection-summary-value">
+                    {{ moneyFull(projectionYearSummary.totalAmortizacionAnio) }}
+                  </strong>
+
+                  <div class="projection-summary-split">
+                    <span>Real: <b>{{ moneyFull(projectionYearSummary.amortizacionReal) }}</b></span>
+                    <span>Proy.: <b>{{ moneyFull(projectionYearSummary.amortizacionProyectada) }}</b></span>
+                  </div>
+                </div>
+              </template>
+            </Card>
+
+            <Card class="projection-summary-card projection-summary-main">
+              <template #content>
+                <div class="projection-summary-stack">
+                  <span class="projection-summary-label">Stock estimado fin de año</span>
+                  <strong class="projection-summary-value projection-summary-value-main">
+                    {{ moneyFull(projectionYearSummary.stockFinAnio) }}
+                  </strong>
+                  <small class="projection-summary-helper">
+                    Stock actual + desembolsos proyectados - amortizaciones proyectadas
+                  </small>
+                </div>
+              </template>
+            </Card>
+
+            <Card
+                class="projection-summary-card"
+                :class="Number(projectionYearSummary.crecimientoVsDicMonto || 0) >= 0 ? 'is-good' : 'is-risk'"
+            >
+              <template #content>
+                <div class="projection-summary-stack">
+                  <span class="projection-summary-label">Crecimiento vs Dic-25</span>
+
+                  <strong
+                      class="projection-summary-value"
+                      :class="Number(projectionYearSummary.crecimientoVsDicMonto || 0) >= 0 ? 'text-green' : 'text-danger'"
+                  >
+                    {{ signedMoneyFull(projectionYearSummary.crecimientoVsDicMonto) }}
+                  </strong>
+
+                  <div class="projection-summary-split">
+        <span>
+          Crecimiento:
+          <b>
+            {{
+              projectionYearSummary.crecimientoVsDicPct > 0 ? '+' : ''
+            }}{{ percent(projectionYearSummary.crecimientoVsDicPct) }}
+          </b>
+        </span>
+                    <span>
+          Stock Dic-25:
+          <b>{{ moneyFull(projectionYearSummary.stockBase) }}</b>
+        </span>
+                  </div>
+                </div>
+              </template>
+            </Card>
+
+            <Card
+                class="projection-summary-card"
+                :class="Number(projectionYearSummary.diferenciaVsPresupuesto || 0) >= 0 ? 'is-good' : 'is-risk'"
+            >
+              <template #content>
+                <div class="projection-summary-stack">
+                  <span class="projection-summary-label">Resultado vs presupuesto</span>
+
+                  <strong
+                      class="projection-summary-value"
+                      :class="Number(projectionYearSummary.diferenciaVsPresupuesto || 0) >= 0 ? 'text-green' : 'text-danger'"
+                  >
+                    {{ signedMoneyFull(projectionYearSummary.diferenciaVsPresupuesto) }}
+                  </strong>
+
+                  <div class="projection-summary-split">
+        <span>
+          Stock presupuesto:
+          <b>{{ moneyFull(projectionYearSummary.presupuesto) }}</b>
+        </span>
+                  </div>
+                </div>
+              </template>
+            </Card>
+          </div>
         </section>
 
         <!-- ═══ SISTEMA FINANCIERO ════════════════════════════════════════════ -->
@@ -2963,18 +5736,6 @@ onMounted(async () => {
               <h3>Sistema financiero</h3></div>
             <Tag value="Denominador incluye BNB" severity="success"/>
           </div>
-
-          <div class="chart-filter-card">
-            <div>
-              <label>Banco del grafico</label>
-              <Dropdown v-model="chartFilters.marketBank" :options="catalogs.bancos" append-to="body"/>
-            </div>
-            <div>
-              <label>Producto del grafico</label>
-              <Dropdown v-model="chartFilters.marketProduct" :options="catalogs.productosSF" append-to="body"/>
-            </div>
-          </div>
-
           <div class="system-charts-stack">
             <Card>
               <template #title>
@@ -3054,24 +5815,228 @@ onMounted(async () => {
               </template>
             </Card>
 
-            <Card>
-              <template #title>Participación BNB por producto (%)</template>
-              <template #content>
-                <div class="chart-box compact">
-                  <Chart type="bar" :data="marketChart" :options="pctChartOptions"/>
-                </div>
-              </template>
-            </Card>
-
             <Card class="mt-4" style="grid-column: 1 / -1;">
               <template #title>Oportunidad de mercado (Stock vs crecimiento total)</template>
               <template #content>
                 <div class="chart-box">
-                  <Chart type="bubble" :data="scatterChart" :options="scatterOptions"/>
+                  <Chart type="bubble" :data="scatterChart" :options="scatterOptions"
+                         style="width: 100%; height: 400px;"/>
                 </div>
               </template>
             </Card>
           </div>
+          <div class="section-header">
+            <div>
+              <span>Sistema financiero · Clientes compartidos</span>
+              <h3>Cartera compartida con el sistema</h3>
+            </div>
+            <Tag severity="warning" value="Oportunidades"/>
+          </div>
+          <div class="shared-kpi-grid">
+            <Card class="projection-summary-card">
+              <template #content>
+                <div class="projection-summary-stack">
+                  <span class="projection-summary-label">Clientes compartidos</span>
+                  <strong class="projection-summary-value">{{
+                      Number(sharedPortfolioTotals.clientesCompartidos || 0).toLocaleString('en-US')
+                    }}</strong>
+                  <small class="projection-summary-helper">Cantidad de clientes con cartera compartida</small>
+                </div>
+              </template>
+            </Card>
+
+            <Card class="projection-summary-card">
+              <template #content>
+                <div class="projection-summary-stack">
+                  <span class="projection-summary-label">Cartera BNB</span>
+                  <strong class="projection-summary-value">{{ moneyFull(sharedPortfolioTotals.bnb) }}</strong>
+                  <small class="projection-summary-helper">{{ percent(sharedPortfolioTotals.participacionBNBPct) }} del
+                    total compartido</small>
+                </div>
+              </template>
+            </Card>
+
+            <Card class="projection-summary-card">
+              <template #content>
+                <div class="projection-summary-stack">
+                  <span class="projection-summary-label">Cartera otros bancos</span>
+                  <strong class="projection-summary-value">{{ moneyFull(sharedPortfolioTotals.otrosBancos) }}</strong>
+                  <small class="projection-summary-helper">{{ percent(sharedPortfolioTotals.participacionOtrosPct) }}
+                    del total compartido</small>
+                </div>
+              </template>
+            </Card>
+          </div>
+          <Card class="elevated-card shared-matrix-card">
+            <template #title>
+              <div class="card-title-rich">
+                <div class="card-title-icon bg-purple">
+                  <font-awesome-icon icon="table-cells"/>
+                </div>
+                <div>
+                  <strong>Matriz de cartera compartida por banco y segmento</strong>
+                  <small>Potencial de compra de deuda cruzando banco competidor y producto</small>
+                </div>
+              </div>
+            </template>
+
+            <template #content>
+              <div class="shared-matrix-wrapper">
+                <table class="shared-matrix-table">
+                  <thead>
+                  <tr>
+                    <th class="sticky-col">Banco</th>
+
+                    <th
+                        v-for="segment in sharedPortfolioMatrix.segments"
+                        :key="segment"
+                        class="segment-col"
+                    >
+                      {{ segment }}
+                    </th>
+
+                    <th class="total-col">Total banco</th>
+                    <th class="total-col">Participación</th>
+                  </tr>
+                  </thead>
+
+                  <tbody>
+                  <tr
+                      v-for="row in sharedPortfolioMatrix.rows"
+                      :key="row.banco"
+                  >
+                    <td class="sticky-col bank-cell">
+                      <div class="bank-name">
+                        <span class="bank-dot"></span>
+                        <strong>{{ row.banco }}</strong>
+                      </div>
+                    </td>
+
+                    <td
+                        v-for="segment in sharedPortfolioMatrix.segments"
+                        :key="`${row.banco}-${segment}`"
+                    >
+                      <div
+                          class="matrix-cell"
+                          :class="matrixCellClass(row.segmentos[segment]?.monto)"
+                      >
+                        <strong>
+                          {{ moneyFullNoDecimals(row.segmentos[segment]?.monto || 0) }}
+                        </strong>
+
+                        <small>
+                          {{
+                            row.segmentos[segment]?.participacionSegmentoPct === null ||
+                            row.segmentos[segment]?.participacionSegmentoPct === undefined
+                                ? 'N/A'
+                                : `${Number(row.segmentos[segment]?.participacionSegmentoPct).toFixed(1)}% del segmento`
+                          }}
+                        </small>
+                      </div>
+                    </td>
+
+                    <td class="total-col">
+                      <strong>{{ moneyFullNoDecimals(row.totalBanco) }}</strong>
+                    </td>
+
+                    <td class="total-col">
+                      <Tag
+                          :severity="row.participacionTotalPct >= 25 ? 'danger' : row.participacionTotalPct >= 10 ? 'warning' : 'success'"
+                          :value="`${Number(row.participacionTotalPct || 0).toFixed(1)}%`"
+                      />
+                    </td>
+                  </tr>
+                  </tbody>
+
+                  <tfoot>
+                  <tr>
+                    <td class="sticky-col">
+                      <strong>Total segmento</strong>
+                    </td>
+
+                    <td
+                        v-for="segment in sharedPortfolioMatrix.segments"
+                        :key="`total-${segment}`"
+                    >
+                      <strong>
+                        {{ moneyFullNoDecimals(sharedPortfolioMatrix.segmentTotals[segment] || 0) }}
+                      </strong>
+                    </td>
+
+                    <td class="total-col">
+                      <strong>{{ moneyFullNoDecimals(sharedPortfolioMatrix.totalGeneral) }}</strong>
+                    </td>
+
+                    <td class="total-col">
+                      <strong>100%</strong>
+                    </td>
+                  </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </template>
+          </Card>
+          <Card class="elevated-card">
+            <template #title>
+              <div class="card-title-rich">
+                <div class="card-title-icon bg-amber">
+                  <font-awesome-icon icon="table-cells"/>
+                </div>
+                <div>
+                  <strong>Potencial de compra de deuda por sucursal / agencia</strong>
+                  <small>Priorización comercial por cartera compartida con otros bancos</small>
+                </div>
+              </div>
+            </template>
+
+            <template #content>
+              <DataTable
+                  :value="sharedPortfolioAgencyRows"
+                  responsive-layout="scroll"
+                  showGridlines
+                  sortField="otrosBancos"
+                  :sortOrder="-1"
+                  paginator
+                  :rows="12"
+                  :rowsPerPageOptions="[12, 24, 50, 100]"
+              >
+                <Column field="sucursal" header="Sucursal"/>
+                <Column field="nombreAgencia" header="Agencia"/>
+                <Column field="clientesCompartidos" header="Clientes compartidos">
+                  <template #body="{ data }">
+                    <strong>{{ Number(data.clientesCompartidos || 0).toLocaleString('en-US') }}</strong>
+                  </template>
+                </Column>
+
+                <Column field="participacionBNBPct" header="% con BNB">
+                  <template #body="{ data }">
+                    <Tag severity="success" :value="percent(data.participacionBNBPct)"/>
+                  </template>
+                </Column>
+
+                <Column field="participacionOtrosPct" header="% con otros">
+                  <template #body="{ data }">
+                    <Tag severity="warning" :value="percent(data.participacionOtrosPct)"/>
+                  </template>
+                </Column>
+
+                <Column field="otrosBancos" header="Potencial compra">
+                  <template #body="{ data }">
+                    <strong>{{ moneyFull(data.otrosBancos) }}</strong>
+                  </template>
+                </Column>
+
+                <Column field="prioridad" header="Prioridad">
+                  <template #body="{ data }">
+                    <Tag
+                        :severity="data.prioridad === 'Alta' ? 'danger' : data.prioridad === 'Media' ? 'warning' : 'success'"
+                        :value="data.prioridad"
+                    />
+                  </template>
+                </Column>
+              </DataTable>
+            </template>
+          </Card>
         </section>
 
         <!-- ═══ AGENTE IA ══════════════════════════════════════════════════════ -->
@@ -3103,6 +6068,8 @@ onMounted(async () => {
                 <Button label="Explica la brecha" outlined @click="triggerBrechaAnalysis()"/>
                 <Button label="BNB vs competencia" outlined @click="triggerCompetenciaAnalysis()"/>
                 <Button label="Ranking oficiales" outlined @click="triggerOficialesAnalysis()"/>
+                <Button label="Proyección financiera" outlined @click="triggerProjectionAnalysis()"/>
+                <Button label="Probabilidad de mora" outlined @click="triggerPdRiskAnalysis()"/>
                 <Button label="Riesgos comerciales" outlined @click="triggerRiesgoAnalysis()"/>
                 <Button label="Plan comercial" outlined @click="triggerPlanComercialAnalysis()"/>
               </div>
@@ -3145,46 +6112,457 @@ onMounted(async () => {
         </section>
 
         <!-- ═══ CAPTACIONES ════════════════════════════════════════════════════ -->
-        <section v-show="active === 'captaciones'" class="page-grid">
+        <section v-show="active === 'capt-desempeno'" class="page-grid">
           <div class="section-header">
-            <div><span>Captaciones</span>
-              <h3>Hub preparado para fuentes futuras</h3></div>
-            <Tag severity="warning" value="Pendiente de BD"/>
+            <div>
+              <span>Captaciones · Desempeño</span>
+              <h3>Desempeño de captaciones por producto</h3>
+              <small>Corte {{ captacionesPeriod }} · Cifras en USD</small>
+            </div>
+            <Tag severity="success" value="Captaciones"/>
           </div>
-          <div class="overview-grid">
-            <Card v-for="item in captacionCards" :key="item.title" class="overview-card">
+
+          <div class="projection-summary-grid">
+            <Card class="projection-summary-card">
               <template #content>
-                <font-awesome-icon :icon="item.icon"/>
-                <span>{{ item.title }}</span>
-                <p>{{ item.body }}</p>
+                <div class="projection-summary-stack">
+                  <span class="projection-summary-label">Captación ejecutada</span>
+                  <strong class="projection-summary-value">
+                    {{ moneyFull(captacionesTotals.ejecutadaCaptaciones) }}
+                  </strong>
+                  <small class="projection-summary-helper">Total ejecutado al corte</small>
+                </div>
+              </template>
+            </Card>
+
+            <Card class="projection-summary-card">
+              <template #content>
+                <div class="projection-summary-stack">
+                  <span class="projection-summary-label">Presupuesto captaciones</span>
+                  <strong class="projection-summary-value">
+                    {{ moneyFull(captacionesTotals.presupuestadaCaptaciones) }}
+                  </strong>
+                  <small class="projection-summary-helper">Meta vigente al corte</small>
+                </div>
+              </template>
+            </Card>
+
+            <Card
+                class="projection-summary-card"
+                :class="Number(captacionesTotals.brechaCaptaciones || 0) >= 0 ? 'is-good' : 'is-risk'"
+            >
+              <template #content>
+                <div class="projection-summary-stack">
+                  <span class="projection-summary-label">Brecha vs presupuesto</span>
+                  <strong
+                      class="projection-summary-value"
+                      :class="Number(captacionesTotals.brechaCaptaciones || 0) >= 0 ? 'text-green' : 'text-danger'"
+                  >
+                    {{ signedMoneyFull(captacionesTotals.brechaCaptaciones) }}
+                  </strong>
+                  <small class="projection-summary-helper">
+                    Cumplimiento {{ percent(captacionesTotals.cumplimientoCaptacionesPct) }}
+                  </small>
+                </div>
               </template>
             </Card>
           </div>
-          <Card>
-            <template #title>Filtros listos para conectar</template>
+
+          <div class="capt-chart-grid capt-chart-grid-balanced">
+            <Card class="elevated-card">
+              <template #title>
+                <div class="card-title-rich">
+                  <div class="card-title-icon bg-green">
+                    <font-awesome-icon icon="chart-simple"/>
+                  </div>
+                  <div>
+                    <strong>Ejecutado vs presupuesto por producto</strong>
+                    <small>Vista, ahorros y plazo</small>
+                  </div>
+                </div>
+              </template>
+              <template #content>
+                <div class="chart-box capt-chart-box">
+                  <Chart
+                      type="bar"
+                      :data="captacionesProductoChart"
+                      :options="captacionesBarOptions"
+                      style="width: 100%; height: 100%;"
+                  />
+                </div>
+              </template>
+            </Card>
+
+            <Card class="elevated-card" style="height: 100%">
+              <template #title>
+                <div class="card-title-rich">
+                  <div class="card-title-icon bg-blue">
+                    <font-awesome-icon icon="building-columns"/>
+                  </div>
+                  <div>
+                    <strong>Sucursales por captación ejecutada</strong>
+                    <small>Ranking por monto ejecutado</small>
+                  </div>
+                </div>
+              </template>
+              <template #content>
+                <div class="chart-box capt-chart-box">
+                  <Chart
+                      type="bar"
+                      :data="captacionesSucursalChart"
+                      :options="captacionesHorizontalOptions"
+                      style="width: 100%; height: 100%;"
+                  />
+                </div>
+              </template>
+            </Card>
+          </div>
+          <Card class="elevated-card capt-historico-card">
+            <template #title>
+              <div class="card-title-rich card-title-with-action">
+                <div class="card-title-left">
+                  <div class="card-title-icon bg-purple">
+                    <font-awesome-icon icon="chart-line"/>
+                  </div>
+                  <div>
+                    <strong>Histórico de captaciones: stock vs presupuesto</strong>
+                    <small>Evolución mensual con cumplimiento en monto y porcentaje</small>
+                  </div>
+                </div>
+
+                <Dropdown
+                    v-model="captacionHistoricoProducto"
+                    :options="captacionHistoricoProductoOptions"
+                    optionLabel="label"
+                    optionValue="value"
+                    append-to="body"
+                    class="capt-historico-filter"
+                />
+              </div>
+            </template>
+
             <template #content>
-              <p class="muted-copy">
-                Fecha, sucursal y producto ya quedan modelados en la interfaz. Cuando se definan las tablas de
-                captaciones,
-                se conectan al mismo patron de endpoints sin cambiar la experiencia.
-              </p>
+              <div class="chart-box capt-historico-chart">
+                <Chart
+                    type="line"
+                    :data="captacionesHistoricoChart"
+                    :options="captacionesHistoricoLineOptions"
+                    style="width: 100%; height: 100%;"
+                />
+              </div>
+            </template>
+          </Card>
+          <Card class="elevated-card">
+            <template #title>
+              <div class="card-title-rich">
+                <div class="card-title-icon bg-purple">
+                  <font-awesome-icon icon="building-columns"/>
+                </div>
+                <div>
+                  <strong>Detalle por agencia</strong>
+                  <small>Vista, ahorros, plazo y cumplimiento total por agencia</small>
+                </div>
+              </div>
+            </template>
+
+            <template #content>
+              <DataTable
+                  :value="captacionesByAgencia"
+                  responsive-layout="scroll"
+                  showGridlines
+                  sortField="ejecutadaCaptaciones"
+                  :sortOrder="-1"
+                  paginator
+                  :rows="12"
+                  :rowsPerPageOptions="[12, 24, 50, 100]"
+              >
+                <Column field="nombreAgencia" header="Agencia"/>
+
+                <Column field="ejecutadaVista" header="Vista">
+                  <template #body="{ data }">
+                    <strong>{{ moneyFull(data.ejecutadaVista) }}</strong>
+                    <small class="table-subtext">{{ percent(data.cumplimientoVistaPct) }}</small>
+                  </template>
+                </Column>
+
+                <Column field="ejecutadaAhorros" header="Ahorros">
+                  <template #body="{ data }">
+                    <strong>{{ moneyFull(data.ejecutadaAhorros) }}</strong>
+                    <small class="table-subtext">{{ percent(data.cumplimientoAhorrosPct) }}</small>
+                  </template>
+                </Column>
+
+                <Column field="ejecutadaPlazo" header="Plazo">
+                  <template #body="{ data }">
+                    <strong>{{ moneyFull(data.ejecutadaPlazo) }}</strong>
+                    <small class="table-subtext">{{ percent(data.cumplimientoPlazoPct) }}</small>
+                  </template>
+                </Column>
+
+                <Column field="ejecutadaCaptaciones" header="Total ejecutado">
+                  <template #body="{ data }">
+                    <strong>{{ moneyFull(data.ejecutadaCaptaciones) }}</strong>
+                  </template>
+                </Column>
+
+                <Column field="presupuestadaCaptaciones" header="Presupuesto">
+                  <template #body="{ data }">
+                    {{ moneyFull(data.presupuestadaCaptaciones) }}
+                  </template>
+                </Column>
+
+                <Column field="brechaCaptaciones" header="Brecha">
+                  <template #body="{ data }">
+                    <strong :class="Number(data.brechaCaptaciones || 0) >= 0 ? 'text-green' : 'text-danger'">
+                      {{ signedMoneyFull(data.brechaCaptaciones) }}
+                    </strong>
+                  </template>
+                </Column>
+
+                <Column field="cumplimientoCaptacionesPct" header="Cumplimiento">
+                  <template #body="{ data }">
+                    <Tag
+                        :severity="Number(data.cumplimientoCaptacionesPct || 0) >= 100 ? 'success' : 'danger'"
+                        :value="percent(data.cumplimientoCaptacionesPct)"
+                    />
+                  </template>
+                </Column>
+
+                <Column field="categoriaTendencia" header="Tendencia">
+                  <template #body="{ data }">
+                    <Tag
+                        :severity="String(data.categoriaTendencia || '').toLowerCase().includes('neg') ? 'danger' : 'success'"
+                        :value="data.categoriaTendencia || 'N/D'"
+                    />
+                  </template>
+                </Column>
+              </DataTable>
             </template>
           </Card>
         </section>
+        <section v-show="active === 'capt-tendencias'" class="page-grid">
+          <div class="section-header">
+            <div>
+              <span>Captaciones · Tendencias</span>
+              <h3>Tendencias de captaciones</h3>
+              <small>Corte {{ captacionesPeriod }} · Clasificación por comportamiento</small>
+            </div>
+            <Tag severity="info" value="Tendencias"/>
+          </div>
+          <div class="">
+            <Card class="elevated-card">
+              <template #title>
+                <div class="card-title-rich">
+                  <div class="card-title-icon bg-blue">
+                    <font-awesome-icon icon="table-cells"/>
+                  </div>
+                  <div>
+                    <strong>Detalle de tendencia por agencia</strong>
+                    <small>Captación total, brecha, tendencia y categoría por agencia</small>
+                  </div>
+                </div>
+              </template>
 
-        <!-- ═══ CAPTACIONES HIJOS ═════════════════════════════════════════════ -->
-        <section v-show="active.startsWith('capt-')" class="page-grid">
-          <Card class="placeholder-card">
-            <template #content>
-              <font-awesome-icon icon="building-columns"/>
-              <h3>Modulo de captaciones en preparacion</h3>
-              <p>No hay tablas declaradas para captaciones en el manual comercial, por eso queda como placeholder
-                controlado.</p>
-              <Tag severity="warning" value="Fuente pendiente"/>
-            </template>
-          </Card>
+              <template #content>
+                <DataTable
+                    :value="captacionesByAgencia"
+                    responsive-layout="scroll"
+                    showGridlines
+                    sortField="tendenciaCaptaciones"
+                    :sortOrder="-1"
+                    paginator
+                    :rows="12"
+                    :rowsPerPageOptions="[12, 24, 50, 100]"
+                >
+                  <Column field="nombreAgencia" header="Agencia"/>
+
+                  <Column field="ejecutadaCaptaciones" header="Captación total">
+                    <template #body="{ data }">
+                      <strong>{{ moneyFull(data.ejecutadaCaptaciones) }}</strong>
+                    </template>
+                  </Column>
+
+                  <Column field="brechaCaptaciones" header="Brecha vs presupuesto">
+                    <template #body="{ data }">
+                      <strong :class="Number(data.brechaCaptaciones || 0) >= 0 ? 'text-green' : 'text-danger'">
+                        {{ signedMoneyFull(data.brechaCaptaciones) }}
+                      </strong>
+                    </template>
+                  </Column>
+
+                  <Column field="cumplimientoCaptacionesPct" header="Cumplimiento">
+                    <template #body="{ data }">
+                      <Tag
+                          :severity="Number(data.cumplimientoCaptacionesPct || 0) >= 100 ? 'success' : 'danger'"
+                          :value="percent(data.cumplimientoCaptacionesPct)"
+                      />
+                    </template>
+                  </Column>
+
+                  <Column field="tendenciaCaptaciones" header="Tendencia monto">
+                    <template #body="{ data }">
+                      <strong :class="trendClass(data.tendenciaCaptaciones)">
+                        {{ signedMoneyFull(data.tendenciaCaptaciones) }}
+                      </strong>
+                    </template>
+                  </Column>
+
+                  <Column field="categoriaTendencia" header="Categoría">
+                    <template #body="{ data }">
+                      <Tag
+                          :severity="String(data.categoriaTendencia || '').toLowerCase().includes('neg') ? 'danger' : 'success'"
+                          :value="data.categoriaTendencia || 'N/D'"
+                      />
+                    </template>
+                  </Column>
+                </DataTable>
+              </template>
+            </Card>
+          </div>
+
         </section>
+        <section v-show="active === 'capt-fuga'" class="page-grid">
+          <div class="section-header">
+            <div>
+              <span>Captaciones · Fuga</span>
+              <h3>Alertas de fuga de captaciones</h3>
+              <small>Corte {{ captacionesPeriod }} · Señal basada en tendencia negativa</small>
+            </div>
+            <Tag severity="danger" value="Riesgo"/>
+          </div>
 
+          <div class="projection-summary-grid">
+            <Card class="projection-summary-card">
+              <template #content>
+                <div class="projection-summary-stack">
+                  <span class="projection-summary-label">Monto en riesgo</span>
+                  <strong class="projection-summary-value text-danger">
+                    {{ moneyFull(captacionesFugaTotals.montoRiesgo) }}
+                  </strong>
+                  <small class="projection-summary-helper">Tendencia negativa acumulada</small>
+                </div>
+              </template>
+            </Card>
+
+            <Card class="projection-summary-card">
+              <template #content>
+                <div class="projection-summary-stack">
+                  <span class="projection-summary-label">Agencias con alerta</span>
+                  <strong class="projection-summary-value">
+                    {{ Number(captacionesFugaTotals.totalAgencias || 0).toLocaleString('en-US') }}
+                  </strong>
+                  <small class="projection-summary-helper">Agencias con caída de captaciones</small>
+                </div>
+              </template>
+            </Card>
+
+            <Card class="projection-summary-card">
+              <template #content>
+                <div class="projection-summary-stack">
+                  <span class="projection-summary-label">Alertas altas</span>
+                  <strong class="projection-summary-value text-danger">
+                    {{ Number(captacionesFugaTotals.alta || 0).toLocaleString('en-US') }}
+                  </strong>
+                  <small class="projection-summary-helper">Agencias con mayor presión</small>
+                </div>
+              </template>
+            </Card>
+          </div>
+
+          <div class="capt-trend-layout">
+            <Card class="elevated-card">
+              <template #title>
+                <div class="card-title-rich">
+                  <div class="card-title-icon bg-red">
+                    <font-awesome-icon icon="triangle-exclamation"/>
+                  </div>
+                  <div>
+                    <strong>Distribución de alertas de fuga</strong>
+                    <small>Agencias clasificadas por nivel de riesgo</small>
+                  </div>
+                </div>
+              </template>
+
+              <template #content>
+                <div class="chart-box compact">
+                  <Chart
+                      type="bar"
+                      :data="captacionesFugaChart"
+                      :options="captacionesBarOptions"
+                  />
+                </div>
+              </template>
+            </Card>
+
+            <Card class="elevated-card">
+              <template #title>
+                <div class="card-title-rich">
+                  <div class="card-title-icon bg-amber">
+                    <font-awesome-icon icon="table-cells"/>
+                  </div>
+                  <div>
+                    <strong>Top agencias con riesgo de fuga</strong>
+                    <small>Priorizado por monto de tendencia negativa</small>
+                  </div>
+                </div>
+              </template>
+
+              <template #content>
+                <DataTable
+                    :value="captacionesFugaRows"
+                    responsive-layout="scroll"
+                    showGridlines
+                    sortField="montoRiesgo"
+                    :sortOrder="-1"
+                    paginator
+                    :rows="12"
+                    :rowsPerPageOptions="[12, 24, 50, 100]"
+                >
+                  <Column field="sucursal" header="Sucursal"/>
+                  <Column field="nombreAgencia" header="Agencia"/>
+
+                  <Column field="ejecutadaCaptaciones" header="Captación actual">
+                    <template #body="{ data }">
+                      <strong>{{ moneyFull(data.ejecutadaCaptaciones) }}</strong>
+                    </template>
+                  </Column>
+
+                  <Column field="tendenciaCaptaciones" header="Tendencia">
+                    <template #body="{ data }">
+                      <strong class="text-danger">
+                        {{ signedMoneyFull(data.tendenciaCaptaciones) }}
+                      </strong>
+                    </template>
+                  </Column>
+
+                  <Column field="montoRiesgo" header="Monto en riesgo">
+                    <template #body="{ data }">
+                      <strong class="text-danger">{{ moneyFull(data.montoRiesgo) }}</strong>
+                    </template>
+                  </Column>
+
+                  <Column field="nivelFuga" header="Nivel">
+                    <template #body="{ data }">
+                      <Tag
+                          :severity="data.nivelFuga === 'Alta' ? 'danger' : data.nivelFuga === 'Media' ? 'warning' : 'success'"
+                          :value="data.nivelFuga"
+                      />
+                    </template>
+                  </Column>
+
+                  <Column field="categoriaTendencia" header="Categoría tendencia">
+                    <template #body="{ data }">
+                      <Tag
+                          :severity="String(data.categoriaTendencia || '').toLowerCase().includes('neg') ? 'danger' : 'warning'"
+                          :value="data.categoriaTendencia || 'N/D'"
+                      />
+                    </template>
+                  </Column>
+                </DataTable>
+              </template>
+            </Card>
+          </div>
+        </section>
         <!-- ═══ ACTUALIZACIONES ════════════════════════════════════════════════ -->
         <section v-show="active === 'actualizaciones'" class="page-grid">
           <div class="section-header">
