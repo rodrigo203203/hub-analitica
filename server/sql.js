@@ -596,6 +596,228 @@ export async function fetchSharedPortfolioFromSql(inputs = {}) {
     return result;
 }
 
+export async function fetchMaduracionFromSql(inputs = {}) {
+    const pool = await getPool();
+    if (!pool) return null;
+
+    const productos = normalizeArrayFilter(inputs.producto, 'TODOS');
+    const sucursales = normalizeArrayFilter(inputs.sucursal, 'TODAS');
+    const agencias = normalizeArrayFilter(inputs.agencia, 'TODAS');
+
+    const request = pool.request();
+    request.input('fecha', inputs.fecha ?? null);
+
+    let productFilter = '';
+    if (Array.isArray(productos) && productos.length > 0) {
+        const params = productos.map((_, i) => `@producto${i}`).join(', ');
+        productFilter = ` AND m.SegmentacionCredito IN (${params})`;
+
+        productos.forEach((value, i) => {
+            request.input(`producto${i}`, sql.NVarChar, value);
+        });
+    }
+
+    let sucursalFilter = '';
+    if (Array.isArray(sucursales) && sucursales.length > 0) {
+        const params = sucursales.map((_, i) => `@sucursal${i}`).join(', ');
+        sucursalFilter = ` AND d.Sucursal IN (${params})`;
+
+        sucursales.forEach((value, i) => {
+            request.input(`sucursal${i}`, sql.NVarChar, value);
+        });
+    }
+
+    let agenciaFilter = '';
+    if (Array.isArray(agencias) && agencias.length > 0) {
+        const params = agencias.map((_, i) => `@agencia${i}`).join(', ');
+        agenciaFilter = ` AND m.idagencia IN (${params})`;
+
+        agencias.forEach((value, i) => {
+            request.input(`agencia${i}`, sql.Int, Number(value));
+        });
+    }
+
+    const result = await request.query(`
+        ;WITH FechaActual AS (
+            SELECT
+                COALESCE(
+                    (
+                        SELECT MAX(CAST(fechadata AS DATE))
+                        FROM Hub_Maduracion
+                        WHERE @fecha IS NOT NULL
+                          AND CAST(fechadata AS DATE) <= CAST(@fecha AS DATE)
+                    ),
+                    (
+                        SELECT MAX(CAST(fechadata AS DATE))
+                        FROM Hub_Maduracion
+                    )
+                ) AS FechaReferencia
+        ),
+        Base AS (
+            SELECT
+                CAST(m.fechadata AS DATE) AS Fecha,
+                m.idagencia AS Cod_Agencia,
+                d.Agencia AS NombreAgencia,
+                d.Sucursal,
+                m.SegmentacionCredito AS Producto,
+
+                SUM(ISNULL(m.Stock, 0)) AS StockUSD,
+                SUM(ISNULL(m.MontoDesembolsoDolares, 0)) AS MontoDesembolsoUSD,
+
+                CASE
+                    WHEN SUM(ISNULL(m.Stock, 0)) = 0 THEN NULL
+                    ELSE
+                        SUM(ISNULL(m.Maduracion, 0) * ISNULL(m.Stock, 0)) * 100.0
+                        / SUM(ISNULL(m.Stock, 0))
+                END AS MaduracionPct
+            FROM Hub_Maduracion m
+            INNER JOIN FechaActual fa
+                ON CAST(m.fechadata AS DATE) = fa.FechaReferencia
+            LEFT JOIN DimAgencia d
+                ON d.Cod_Agencia = m.idagencia
+            WHERE 1 = 1
+              ${productFilter}
+              ${sucursalFilter}
+              ${agenciaFilter}
+            GROUP BY
+                CAST(m.fechadata AS DATE),
+                m.idagencia,
+                d.Agencia,
+                d.Sucursal,
+                m.SegmentacionCredito
+        )
+        SELECT
+            Fecha,
+            Cod_Agencia,
+            NombreAgencia,
+            Sucursal,
+            Producto,
+            StockUSD,
+            MontoDesembolsoUSD,
+            MaduracionPct,
+            MontoDesembolsoUSD - StockUSD AS AmortizadoEstimadoUSD,
+            CASE
+                WHEN MontoDesembolsoUSD = 0 THEN NULL
+                ELSE StockUSD * 100.0 / MontoDesembolsoUSD
+            END AS SaldoSobreDesembolsoPct
+        FROM Base
+        ORDER BY
+            MaduracionPct DESC,
+            StockUSD DESC;
+    `);
+
+    return result;
+}
+
+export async function fetchLcfFromSql(inputs = {}) {
+    const pool = await getPool();
+    if (!pool) return null;
+
+    const productos = normalizeArrayFilter(inputs.producto, 'TODOS');
+    const sucursales = normalizeArrayFilter(inputs.sucursal, 'TODAS');
+    const agencias = normalizeArrayFilter(inputs.agencia, 'TODAS');
+
+    const request = pool.request();
+    request.input('fecha', inputs.fecha ?? null);
+
+    let productFilter = '';
+    if (Array.isArray(productos) && productos.length > 0) {
+        const params = productos.map((_, i) => `@producto${i}`).join(', ');
+        productFilter = ` AND l.SegmentacionCredito IN (${params})`;
+
+        productos.forEach((value, i) => {
+            request.input(`producto${i}`, sql.NVarChar, value);
+        });
+    }
+
+    let sucursalFilter = '';
+    if (Array.isArray(sucursales) && sucursales.length > 0) {
+        const params = sucursales.map((_, i) => `@sucursal${i}`).join(', ');
+        sucursalFilter = ` AND d.Sucursal IN (${params})`;
+
+        sucursales.forEach((value, i) => {
+            request.input(`sucursal${i}`, sql.NVarChar, value);
+        });
+    }
+
+    let agenciaFilter = '';
+    if (Array.isArray(agencias) && agencias.length > 0) {
+        const params = agencias.map((_, i) => `@agencia${i}`).join(', ');
+        agenciaFilter = ` AND l.IdAgencia IN (${params})`;
+
+        agencias.forEach((value, i) => {
+            request.input(`agencia${i}`, sql.Int, Number(value));
+        });
+    }
+
+    const result = await request.query(`
+        ;WITH FechaActual AS (
+            SELECT
+                COALESCE(
+                    (
+                        SELECT MAX(CAST(FechaData AS DATE))
+                        FROM Hub_LCF
+                        WHERE @fecha IS NOT NULL
+                          AND CAST(FechaData AS DATE) <= CAST(@fecha AS DATE)
+                    ),
+                    (
+                        SELECT MAX(CAST(FechaData AS DATE))
+                        FROM Hub_LCF
+                    )
+                ) AS FechaReferencia
+        ),
+        Base AS (
+            SELECT
+                CAST(l.FechaData AS DATE) AS Fecha,
+                l.IdAgencia AS Cod_Agencia,
+                d.Agencia AS NombreAgencia,
+                d.Sucursal,
+                l.SegmentacionCredito AS Producto,
+
+                SUM(ISNULL(l.MontoDesembolsoDolares, 0)) AS MontoAutorizadoUSD,
+                SUM(ISNULL(l.SaldoDeudorDolares, 0)) AS SaldoActivadoUSD
+            FROM Hub_LCF l
+            INNER JOIN FechaActual fa
+                ON CAST(l.FechaData AS DATE) = fa.FechaReferencia
+            LEFT JOIN DimAgencia d
+                ON d.Cod_Agencia = l.IdAgencia
+            WHERE 1 = 1
+              ${productFilter}
+              ${sucursalFilter}
+              ${agenciaFilter}
+            GROUP BY
+                CAST(l.FechaData AS DATE),
+                l.IdAgencia,
+                d.Agencia,
+                d.Sucursal,
+                l.SegmentacionCredito
+        )
+        SELECT
+            Fecha,
+            Cod_Agencia,
+            NombreAgencia,
+            Sucursal,
+            Producto,
+            MontoAutorizadoUSD,
+            SaldoActivadoUSD,
+            MontoAutorizadoUSD - SaldoActivadoUSD AS CupoNoUtilizadoUSD,
+            CASE
+                WHEN MontoAutorizadoUSD = 0 THEN NULL
+                ELSE SaldoActivadoUSD * 100.0 / MontoAutorizadoUSD
+            END AS ActivacionPct,
+            CASE
+                WHEN MontoAutorizadoUSD = 0 THEN NULL
+                ELSE (MontoAutorizadoUSD - SaldoActivadoUSD) * 100.0 / MontoAutorizadoUSD
+            END AS CupoNoUtilizadoPct
+        FROM Base
+        ORDER BY
+            CupoNoUtilizadoUSD DESC,
+            MontoAutorizadoUSD DESC;
+    `);
+
+    return result;
+}
+
 export async function fetchCaptacionesFromSql(inputs = {}) {
     const pool = await getPool();
     if (!pool) return null;
@@ -1295,6 +1517,12 @@ export const queries = {
         FROM Hub_CarteraSF_COMPARTIDA
         UNION ALL
         SELECT 'Hub_Captaciones' AS Fuente, MAX(Fecha) AS FechaCorte
-        FROM Hub_Captaciones;
+        FROM Hub_Captaciones
+        UNION ALL
+        SELECT 'Hub_Maduracion' AS Fuente, MAX(fechadata) AS FechaCorte
+        FROM Hub_Maduracion
+        UNION ALL
+        SELECT 'Hub_LCF' AS Fuente, MAX(FechaData) AS FechaCorte
+        FROM Hub_LCF;
     `
 };

@@ -26,7 +26,9 @@ import {
     fetchPdRiskHistoryFromSql,
     fetchSharedPortfolioFromSql,
     fetchCaptacionesFromSql,
-    fetchCaptacionesHistoryFromSql
+    fetchCaptacionesHistoryFromSql,
+    fetchMaduracionFromSql,
+    fetchLcfFromSql
 } from './sql.js';
 
 const app = express();
@@ -686,6 +688,20 @@ app.get('/api/fuentes/status', async (_req, res, next) => {
                     tabla: 'Hub_CarteraSF_COMPARTIDA',
                     fechaCorte: sqlDates.Hub_CarteraSF_COMPARTIDA || null,
                     estado: 'Vigente'
+                },
+                {
+                    fuente: 'Hub_Maduracion',
+                    tipo: 'SQL Server',
+                    tabla: 'Hub_Maduracion',
+                    fechaCorte: sqlDates.Hub_Maduracion || null,
+                    estado: 'Activa'
+                },
+                {
+                    fuente: 'Hub_LCF',
+                    tipo: 'SQL Server',
+                    tabla: 'Hub_LCF',
+                    fechaCorte: sqlDates.Hub_LCF || null,
+                    estado: 'Activa'
                 }
             ],
             ...await sqlMode()
@@ -1133,6 +1149,88 @@ app.get('/api/captaciones/historico', async (req, res, next) => {
                     : Number(row.CumplimientoPlazoPct),
 
             tendenciaCaptaciones: Number(row.TendenciaCaptaciones || 0)
+        }));
+
+        return res.json({
+            data,
+            ...await sqlMode()
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get('/api/oportunidades/maduracion', async (req, res, next) => {
+    try {
+        const f = parseFilters(req);
+
+        const result = await fetchMaduracionFromSql({
+            fecha: f.fecha,
+            sucursal: f.sucursal,
+            producto: f.producto,
+            agencia: f.agencia
+        });
+
+        if (!result) {
+            return res.json({
+                data: [],
+                ...await sqlMode()
+            });
+        }
+
+        const data = (result.recordset || []).map((row) => ({
+            fecha: row.Fecha,
+            producto: row.Producto,
+            codAgencia: row.Cod_Agencia,
+            nombreAgencia: row.NombreAgencia,
+            sucursal: row.Sucursal,
+
+            stock: money(row.StockUSD),
+            montoDesembolso: money(row.MontoDesembolsoUSD),
+            maduracionPct: pct(row.MaduracionPct),
+            amortizadoEstimado: money(row.AmortizadoEstimadoUSD),
+            saldoSobreDesembolsoPct: pct(row.SaldoSobreDesembolsoPct)
+        }));
+
+        return res.json({
+            data,
+            ...await sqlMode()
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get('/api/oportunidades/lcf', async (req, res, next) => {
+    try {
+        const f = parseFilters(req);
+
+        const result = await fetchLcfFromSql({
+            fecha: f.fecha,
+            sucursal: f.sucursal,
+            producto: f.producto,
+            agencia: f.agencia
+        });
+
+        if (!result) {
+            return res.json({
+                data: [],
+                ...await sqlMode()
+            });
+        }
+
+        const data = (result.recordset || []).map((row) => ({
+            fecha: row.Fecha,
+            producto: row.Producto,
+            codAgencia: row.Cod_Agencia,
+            nombreAgencia: row.NombreAgencia,
+            sucursal: row.Sucursal,
+
+            montoAutorizado: money(row.MontoAutorizadoUSD),
+            saldoActivado: money(row.SaldoActivadoUSD),
+            cupoNoUtilizado: money(row.CupoNoUtilizadoUSD),
+            activacionPct: pct(row.ActivacionPct),
+            cupoNoUtilizadoPct: pct(row.CupoNoUtilizadoPct)
         }));
 
         return res.json({

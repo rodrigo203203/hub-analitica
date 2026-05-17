@@ -88,7 +88,7 @@ export const api = {
     pdRisk: (params) =>
         get(`/api/cartera/pd-risk${queryString(params)}`),
     pdRiskHistory: (params) =>
-        get(`/api/cartera/pd-risk-history${queryString(params)}`),sharedPortfolio: (params) =>
+        get(`/api/cartera/pd-risk-history${queryString(params)}`), sharedPortfolio: (params) =>
         get(`/api/sistema-financiero/cartera-compartida${queryString(params)}`),
 
     captaciones: (params) =>
@@ -96,4 +96,9 @@ export const api = {
 
     captacionesHistorico: (params) =>
         get(`/api/captaciones/historico${queryString(params)}`),
+    maduracion: (params) =>
+        get(`/api/oportunidades/maduracion${queryString(params)}`),
+
+    lcf: (params) =>
+        get(`/api/oportunidades/lcf${queryString(params)}`),
 };

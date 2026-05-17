@@ -5,7 +5,6 @@ import Card from 'primevue/card';
 import Chart from 'primevue/chart';
 import Column from 'primevue/column';
 import DataTable from 'primevue/datatable';
-import Divider from 'primevue/divider';
 import Dropdown from 'primevue/dropdown';
 import MultiSelect from 'primevue/multiselect';
 import ProgressBar from 'primevue/progressbar';
@@ -14,7 +13,7 @@ import Tag from 'primevue/tag';
 import Textarea from 'primevue/textarea';
 import {marked} from 'marked';
 import {api} from './api';
-import {dateIso, money, moneyFull, percent} from './format';
+import {dateIso, moneyFull, percent} from './format';
 // Fotos
 import ronyImg from './img/rony.jpg'
 import marceloImg from './img/marcelo.jpg'
@@ -47,6 +46,139 @@ function fmtPctPrompt(value) {
 function safeNumber(value) {
   const n = Number(value || 0);
   return Number.isFinite(n) ? n : 0;
+}
+
+function normalizeText(value) {
+  return String(value || '')
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '');
+}
+
+function isCaptacionFugaCategory(value) {
+  const text = normalizeText(value);
+
+  if (!text || text === 'n/d' || text === 'sin categoria') return false;
+
+  return (
+      text.includes('fuga') ||
+      text.includes('negativ') ||
+      text.includes('caida') ||
+      text.includes('dismin') ||
+      text.includes('decrec') ||
+      text.includes('riesgo') ||
+      text.includes('alerta')
+  );
+}
+
+function captacionFugaLevelFromCategory(value) {
+  const text = normalizeText(value);
+
+  if (!isCaptacionFugaCategory(text)) return 'Sin alerta';
+  if (text.includes('alta') || text.includes('crit') || text.includes('severa')) return 'Alta';
+  if (text.includes('media') || text.includes('moderada')) return 'Media';
+  if (text.includes('baja') || text.includes('leve')) return 'Baja';
+
+  return 'Media';
+}
+
+function captacionCategorySeverity(value) {
+  const level = captacionFugaLevelFromCategory(value);
+
+  if (level === 'Alta') return 'danger';
+  if (level === 'Media') return 'warning';
+  if (level === 'Baja') return 'warning';
+
+  const text = normalizeText(value);
+  if (text.includes('positiv') || text.includes('crec') || text.includes('estable')) return 'success';
+
+  return 'info';
+}
+
+
+function opportunityProduct(row) {
+  return row?.producto ||
+      row?.segmentacionCredito ||
+      row?.SegmentacionCredito ||
+      row?.segmentacioncredito ||
+      row?.PRODUCTO ||
+      row?.productoCredito ||
+      row?.tipoProducto ||
+      'N/D';
+}
+
+function creditCountValue(row) {
+  const candidates = [
+    row?.cantidadCreditos,
+    row?.CantidadCreditos,
+    row?.nroCreditos,
+    row?.NroCreditos,
+    row?.numeroCreditos,
+    row?.NumeroCreditos,
+    row?.operaciones,
+    row?.Operaciones,
+    row?.stockCreditos,
+    row?.StockCreditos
+  ];
+
+  const found = candidates.find((value) => Number.isFinite(Number(value)) && Number(value) > 0);
+
+  // No se infieren créditos si la consulta no trae una columna explícita de cantidad.
+  return found === undefined ? null : Number(found);
+}
+
+function maduracionAlertLevel(value) {
+  const n = Number(value);
+
+  if (!Number.isFinite(n)) return 'N/D';
+
+  // Regla vigente: en maduración, mayor porcentaje representa mayor alerta comercial.
+  if (n > 50) return 'Crítico';
+  if (n >= 30) return 'Alerta';
+  return 'Normal';
+}
+
+function lcfSaldoActivadoValue(row) {
+  // Regla vigente de origen: la consulta trae los campos invertidos.
+  // cupoNoUtilizado de la fuente debe leerse como saldo activado.
+  return Number(row?.cupoNoUtilizado || 0);
+}
+
+function lcfCupoNoUtilizadoValue(row) {
+  // saldoActivado de la fuente debe leerse como cupo no utilizado.
+  return Number(row?.saldoActivado || 0);
+}
+
+function maduracionAlertSeverity(value) {
+  const level = maduracionAlertLevel(value);
+
+  if (level === 'Crítico') return 'danger';
+  if (level === 'Alerta') return 'warning';
+  if (level === 'Normal') return 'success';
+  return 'info';
+}
+
+function maduracionAlertIcon(value) {
+  const level = maduracionAlertLevel(value);
+
+  if (level === 'Crítico') return 'circle-exclamation';
+  if (level === 'Alerta') return 'triangle-exclamation';
+  if (level === 'Normal') return 'circle-check';
+  return 'circle-question';
+}
+
+function maduracionRiskOrder(value) {
+  const level = maduracionAlertLevel(value);
+
+  if (level === 'Crítico') return 3;
+  if (level === 'Alerta') return 2;
+  if (level === 'Normal') return 1;
+  return 0;
+}
+
+function maduracionRuleText() {
+  return 'Regla de maduración: mayor porcentaje = peor condición comercial, porque el crédito está más cerca de completarse/vencer. Priorizar Crítico >50%, luego Alerta 30–50%, luego Normal <30%.';
 }
 
 function toPeriodYYYYMM(value) {
@@ -136,6 +268,17 @@ const sections = [
   {id: 'organigrama', label: 'Organigrama', icon: 'sitemap'},
   {id: 'agente', label: 'Agente IA', icon: 'brain'},
   {
+    id: 'oportunidades',
+    label: 'Oportunidades',
+    icon: 'lightbulb',
+    groupOnly: true,
+    children: [
+      {id: 'op-resumen', label: 'Resumen oportunidades', icon: 'chart-simple'},
+      {id: 'op-maduracion', label: 'Maduración créditos', icon: 'hourglass-half'},
+      {id: 'op-lcf', label: 'Líneas crédito familiar', icon: 'credit-card'}
+    ]
+  },
+  {
     id: 'cartera',
     label: 'Cartera',
     icon: 'chart-line',
@@ -172,6 +315,13 @@ const sidebarCollapsed = ref(false);
 const captaciones = ref([]);
 const captacionesHistorico = ref([]);
 const captacionHistoricoProducto = ref('TODOS');
+const captacionStockBudgetFilter = ref('TODOS');
+const maduracion = ref([]);
+const lcf = ref([]);
+const maduracionSucursalProductoSortField = ref('maduracionPct');
+const maduracionSucursalProductoSortOrder = ref(-1);
+const maduracionDetalleSortField = ref('maduracionPct');
+const maduracionDetalleSortOrder = ref(-1);
 
 const captacionHistoricoProductoOptions = [
   { label: 'Todos', value: 'TODOS' },
@@ -180,9 +330,6 @@ const captacionHistoricoProductoOptions = [
   { label: 'DPF / Plazo', value: 'PLAZO' }
 ];
 const dataMode = ref('mock');
-const selectedPeriod = ref('Ultimo corte');
-const periods = ['Ultimo corte', '2026 Q2', '2026 Q1', '2025 cierre'];
-
 const DEFAULT_PRODUCTOS = [
   'CONSUMO',
   'VIVIENDA',
@@ -249,7 +396,6 @@ const scenarios = [
 
 const loading = ref(true);
 const summary = ref(null);
-const kpis = ref([]);
 const kpisProductData = ref([]);
 const projection = ref([]);
 const projectionProductData = ref({});
@@ -540,8 +686,6 @@ const productTotals = computed(() => {
 // Constantes visuales
 // ─────────────────────────────────────────────────────────────
 
-const USD_TO_BOB = 6.86;
-
 const PALETTE = [
   '#26b460',
   '#8b5cf6',
@@ -553,13 +697,6 @@ const PALETTE = [
   '#0ea5e9',
   '#64748b'
 ];
-
-const kpiSeverityClass = {
-  success: 'kpi-success',
-  danger: 'kpi-danger',
-  warning: 'kpi-warning',
-  info: 'kpi-info'
-};
 
 const tooltipBase = {
   backgroundColor: 'rgba(15,31,22,0.92)',
@@ -2441,6 +2578,105 @@ const portadaKpiCards = computed(() => [
   }
 ]);
 
+
+const portadaIntegratedSummaryCards = computed(() => [
+  {
+    label: 'Captaciones ejecutadas',
+    value: moneyFull(captacionesTotals.value.ejecutadaCaptaciones),
+    helper: `${percent(captacionesTotals.value.cumplimientoCaptacionesPct)} de cumplimiento · Brecha ${signedMoneyFullNoDecimals(captacionesTotals.value.brechaCaptaciones)}`,
+    icon: 'piggy-bank',
+    tone: Number(captacionesTotals.value.brechaCaptaciones || 0) >= 0 ? 'success' : 'danger'
+  },
+  {
+    label: 'Alertas captaciones',
+    value: Number(captacionesFugaTotals.value.totalAgencias || 0).toLocaleString('en-US'),
+    helper: `${moneyFullNoDecimals(captacionesFugaTotals.value.montoRiesgo)} en agencias con categoría de alerta`,
+    icon: 'triangle-exclamation',
+    tone: Number(captacionesFugaTotals.value.montoRiesgo || 0) > 0 ? 'danger' : 'success'
+  },
+  {
+    label: 'Maduración ponderada',
+    value: percent(maduracionTotals.value.maduracionPonderadaPct),
+    helper: `${moneyFull(maduracionTotals.value.stock)} en stock vigente`,
+    icon: 'hourglass-half',
+    tone: Number(maduracionTotals.value.maduracionPonderadaPct || 0) > 50 ? 'danger' : Number(maduracionTotals.value.maduracionPonderadaPct || 0) >= 30 ? 'warning' : 'success'
+  },
+  {
+    label: 'LCF no utilizado',
+    value: moneyFull(lcfTotals.value.cupoNoUtilizado),
+    helper: `${percent(lcfTotals.value.cupoNoUtilizadoPct)} del monto autorizado`,
+    icon: 'credit-card',
+    tone: Number(lcfTotals.value.cupoNoUtilizado || 0) > 0 ? 'success' : 'warning'
+  },
+  {
+    label: 'Cartera compartida',
+    value: moneyFull(sharedPortfolioTotals.value.otrosBancos),
+    helper: `${sharedPortfolioTotals.value.clientesCompartidos.toLocaleString('en-US')} clientes compartidos`,
+    icon: 'building-columns',
+    tone: 'info'
+  },
+  {
+    label: 'Oportunidad total',
+    value: moneyFull(oportunidadesTotals.value.oportunidadTotal),
+    helper: 'LCF no utilizado + cartera otros bancos',
+    icon: 'lightbulb',
+    tone: 'success'
+  }
+]);
+
+const portadaExecutiveAlerts = computed(() => {
+  const alerts = [];
+
+  if (Number(summary.value?.brechaPresupuesto || 0) < 0) {
+    alerts.push({
+      title: 'Brecha de cartera bajo presupuesto',
+      detail: `Faltan ${moneyFullNoDecimals(Math.abs(Number(summary.value?.brechaPresupuesto || 0)))} para alcanzar la meta de stock.`,
+      tone: 'danger',
+      icon: 'triangle-exclamation'
+    });
+  }
+
+  if (Number(captacionesTotals.value.brechaCaptaciones || 0) < 0) {
+    alerts.push({
+      title: 'Captaciones por debajo del presupuesto',
+      detail: `Brecha actual de ${signedMoneyFullNoDecimals(captacionesTotals.value.brechaCaptaciones)} frente al presupuesto.`,
+      tone: 'danger',
+      icon: 'piggy-bank'
+    });
+  }
+
+  if (Number(captacionesFugaTotals.value.montoRiesgo || 0) > 0) {
+    alerts.push({
+      title: 'Alertas por categoría de captaciones',
+      detail: `${captacionesFugaTotals.value.totalAgencias} agencias tienen categoría de alerta; saldo observado ${moneyFullNoDecimals(captacionesFugaTotals.value.montoRiesgo)}.`,
+      tone: 'warning',
+      icon: 'arrow-trend-down'
+    });
+  }
+
+  if (Number(lcfTotals.value.cupoNoUtilizado || 0) > 0) {
+    alerts.push({
+      title: 'Cupo LCF pendiente de activar',
+      detail: `Existe ${moneyFullNoDecimals(lcfTotals.value.cupoNoUtilizado)} disponible para activación comercial.`,
+      tone: 'success',
+      icon: 'credit-card'
+    });
+  }
+
+  if (Number(sharedPortfolioTotals.value.otrosBancos || 0) > 0) {
+    alerts.push({
+      title: 'Compra de deuda potencial',
+      detail: `La cartera compartida en otros bancos suma ${moneyFullNoDecimals(sharedPortfolioTotals.value.otrosBancos)}.`,
+      tone: 'info',
+      icon: 'building-columns'
+    });
+  }
+
+  return alerts.slice(0, 5);
+});
+
+const portadaOpportunityAgencyTop = computed(() => oportunidadesByAgencia.value.slice(0, 6));
+
 const portadaTopProducts = computed(() =>
     [...(kpisProductData.value || [])]
         .sort((a, b) => Number(b.stock || 0) - Number(a.stock || 0))
@@ -3015,78 +3251,6 @@ const portadaGrowthLeaders = computed(() => {
 // Otros computed de módulos
 // ─────────────────────────────────────────────────────────────
 
-const carteraSnapshot = computed(() => [
-  {
-    label: 'Stock',
-    value: moneyFull(summary.value?.stockActual),
-    icon: 'chart-line',
-    helper: 'Hub_CarteraBNB.stock'
-  },
-  {
-    label: 'Presupuesto',
-    value: money(summary.value?.presupuesto),
-    icon: 'bullseye',
-    helper: 'Hub_CarteraBNB.presupuesto'
-  },
-  {
-    label: 'Amortizacion',
-    value: money(summary.value?.amortizacion),
-    icon: 'rotate',
-    helper: 'Hub_CarteraBNB.amortizacion'
-  },
-  {
-    label: 'Brecha',
-    value: money(summary.value?.brechaPresupuesto),
-    icon: 'triangle-exclamation',
-    helper: 'stock - presupuesto'
-  }
-]);
-
-const commercialHealth = computed(() => [
-  {
-    title: 'Cumplimiento de stock',
-    value: percent(summary.value?.cumplimientoPct),
-    status: (summary.value?.cumplimientoPct || 0) >= 100 ? 'Cumple meta' : 'Bajo presupuesto',
-    tone: (summary.value?.cumplimientoPct || 0) >= 100 ? 'success' : 'danger'
-  },
-  {
-    title: 'Presion de brecha',
-    value: money(summary.value?.brechaPresupuesto),
-    status: 'Diferencia contra presupuesto vigente',
-    tone: (summary.value?.brechaPresupuesto || 0) >= 0 ? 'success' : 'danger'
-  },
-  {
-    title: 'Ritmo de desembolso',
-    value: money(summary.value?.desembolsosAcum),
-    status: `${percent(summary.value?.desembolsosVariacionPct)} vs periodo comparable`,
-    tone: 'success'
-  },
-  {
-    title: 'Amortización',
-    value: money(summary.value?.amortizacion),
-    status: 'Amortizacion del periodo',
-    tone: 'warning'
-  }
-]);
-
-const captacionCards = [
-  {
-    title: 'KPIs',
-    body: 'Espacio reservado para saldos, crecimiento y cumplimiento de captaciones cuando exista fuente oficial.',
-    icon: 'chart-pie'
-  },
-  {
-    title: 'Persona natural',
-    body: 'Vista para cuentas, saldos y comportamiento por segmento natural.',
-    icon: 'user-tie'
-  },
-  {
-    title: 'Persona juridica',
-    body: 'Vista para empresas, productos transaccionales y saldos por banca.',
-    icon: 'building-columns'
-  }
-];
-
 // ─────────────────────────────────────────────────────────────
 // Prompt builder agente IA
 // ─────────────────────────────────────────────────────────────
@@ -3116,6 +3280,9 @@ Reglas comerciales obligatorias:
 - Superávit contra presupuesto es excelente.
 - Brecha negativa representa déficit contra presupuesto.
 - El crecimiento se evalúa contra la base de diciembre 2025.
+- Regla obligatoria de maduración: mayor maduración es peor y representa mayor prioridad comercial, porque el crédito se está completando/venciendo.
+- Maduración crítica: >50%. Maduración en alerta: 30% a 50%. Maduración normal: <30%.
+- En maduración, no interpretes un porcentaje alto como positivo; interprétalo como señal de retención, renovación, recompra, refinanciamiento o ampliación.
 - En sistema financiero, la participación BNB se calcula sobre el total del sistema financiero, incluyendo BNB en el denominador.
 - No inventes datos. Si falta un dato, indica "Dato no disponible".
 - Usa únicamente los datos enviados en este mensaje.
@@ -3413,6 +3580,184 @@ Interpretación:
 }
 
 
+
+function buildCaptacionesTable(limit = 20) {
+  if (!captaciones.value?.length) return 'No hay información de captaciones disponible.';
+
+  const totals = captacionesTotals.value;
+  const fuga = captacionesFugaTotals.value;
+
+  const rows = [...captacionesByAgencia.value]
+      .sort((a, b) => safeNumber(b.ejecutadaCaptaciones) - safeNumber(a.ejecutadaCaptaciones))
+      .slice(0, limit)
+      .map((r) => `| ${r.sucursal || 'N/D'} | ${r.nombreAgencia || r.codAgencia || 'N/D'} | ${fmtMoneyPrompt(r.ejecutadaCaptaciones)} | ${fmtMoneyPrompt(r.presupuestadaCaptaciones)} | ${fmtMoneyPrompt(r.brechaCaptaciones)} | ${fmtPctPrompt(r.cumplimientoCaptacionesPct)} | ${r.categoriaTendencia || 'N/D'} |`)
+      .join('\n');
+
+  return `
+Captaciones:
+Resumen:
+| Métrica | Valor |
+|---|---:|
+| Periodo captaciones | ${captacionesPeriod.value} |
+| Ejecutada captaciones | ${fmtMoneyPrompt(totals.ejecutadaCaptaciones)} |
+| Presupuesto captaciones | ${fmtMoneyPrompt(totals.presupuestadaCaptaciones)} |
+| Brecha captaciones | ${fmtMoneyPrompt(totals.brechaCaptaciones)} |
+| Cumplimiento captaciones | ${fmtPctPrompt(totals.cumplimientoCaptacionesPct)} |
+| Vista ejecutada | ${fmtMoneyPrompt(totals.ejecutadaVista)} |
+| Ahorros ejecutado | ${fmtMoneyPrompt(totals.ejecutadaAhorros)} |
+| DPF / Plazo ejecutado | ${fmtMoneyPrompt(totals.ejecutadaPlazo)} |
+| Saldo observado en categorías de alerta | ${fmtMoneyPrompt(fuga.montoRiesgo)} |
+| Agencias con categoría de alerta | ${fuga.totalAgencias} |
+
+Detalle por agencia:
+| Sucursal | Agencia | Ejecutado | Presupuesto | Brecha | Cumplimiento | Categoría tendencia |
+|---|---|---:|---:|---:|---:|---|
+${rows}
+`.trim();
+}
+
+function buildMaduracionTable(limit = 20) {
+  if (!maduracion.value?.length) return 'No hay información de maduración disponible.';
+
+  const totals = maduracionTotals.value;
+
+  const rows = [...maduracion.value]
+      .sort((a, b) => Number(b.maduracionPct ?? -999) - Number(a.maduracionPct ?? -999))
+      .slice(0, limit)
+      .map((r) => `| ${r.sucursal || 'N/D'} | ${r.nombreAgencia || r.codAgencia || 'N/D'} | ${opportunityProduct(r)} | ${fmtMoneyPrompt(r.stock)} | ${fmtMoneyPrompt(r.montoDesembolso)} | ${fmtPctPrompt(r.maduracionPct)} | ${maduracionAlertLevel(r.maduracionPct)} | ${fmtPctPrompt(r.saldoSobreDesembolsoPct)} |`)
+      .join('\n');
+
+  return `
+Maduración de créditos:
+Regla de interpretación:
+- Mayor maduración = peor condición comercial y mayor prioridad.
+- Crítico >50%: crédito cercano a completarse/vencer; requiere acción prioritaria.
+- Alerta 30–50%: seguimiento preventivo y gestión comercial.
+- Normal <30%: menor prioridad relativa.
+
+Resumen:
+| Métrica | Valor |
+|---|---:|
+| Stock vigente | ${fmtMoneyPrompt(totals.stock)} |
+| Monto desembolsado original | ${fmtMoneyPrompt(totals.montoDesembolso)} |
+| Amortizado estimado | ${fmtMoneyPrompt(totals.amortizadoEstimado)} |
+| Maduración ponderada | ${fmtPctPrompt(totals.maduracionPonderadaPct)} |
+| Saldo / desembolso | ${fmtPctPrompt(totals.saldoSobreDesembolsoPct)} |
+
+Resumen por producto:
+| Producto | Agencias | Créditos / registros | Stock | Monto desembolso | Maduración ponderada | Crítico >50% | Alerta 30-50% | Saldo / desembolso |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+${maduracionBandRows.value.slice(0, 12).map((r) => `| ${r.producto} | ${Number(r.agenciasCount || 0).toLocaleString('en-US')} | ${r.creditos !== null && r.creditos !== undefined ? `${Number(r.creditos || 0).toLocaleString('en-US')} créditos` : `${Number(r.registrosFuente || 0).toLocaleString('en-US')} registros fuente`} | ${fmtMoneyPrompt(r.stock)} | ${fmtMoneyPrompt(r.montoDesembolso)} | ${fmtPctPrompt(r.maduracionPct)} | ${fmtMoneyPrompt(r.criticoStock)} | ${fmtMoneyPrompt(r.alertaStock)} | ${fmtPctPrompt(r.saldoSobreDesembolsoPct)} |`).join('\n')}
+
+Detalle:
+| Sucursal | Agencia | Producto | Stock | Monto desembolso | Maduración | Nivel alerta | Saldo / desembolso |
+|---|---|---|---:|---:|---:|---|---:|
+${rows}
+`.trim();
+}
+
+function buildLcfTable(limit = 20) {
+  if (!lcf.value?.length) return 'No hay información de líneas de crédito familiar disponible.';
+
+  const totals = lcfTotals.value;
+
+  const rows = [...lcf.value]
+      .sort((a, b) => safeNumber(b.cupoNoUtilizado) - safeNumber(a.cupoNoUtilizado))
+      .slice(0, limit)
+      .map((r) => {
+        const saldoActivado = lcfSaldoActivadoValue(r);
+        const cupoNoUtilizado = lcfCupoNoUtilizadoValue(r);
+        const activacionPct = safeNumber(r.montoAutorizado) > 0 ? (saldoActivado * 100) / safeNumber(r.montoAutorizado) : null;
+
+        return `| ${r.sucursal || 'N/D'} | ${r.nombreAgencia || r.codAgencia || 'N/D'} | ${opportunityProduct(r)} | ${fmtMoneyPrompt(r.montoAutorizado)} | ${fmtMoneyPrompt(saldoActivado)} | ${fmtMoneyPrompt(cupoNoUtilizado)} | ${fmtPctPrompt(activacionPct)} |`;
+      })
+      .join('\n');
+
+  return `
+Líneas de crédito familiar LCF:
+Resumen:
+| Métrica | Valor |
+|---|---:|
+| Monto autorizado | ${fmtMoneyPrompt(totals.montoAutorizado)} |
+| Saldo activado | ${fmtMoneyPrompt(totals.saldoActivado)} |
+| Cupo no utilizado | ${fmtMoneyPrompt(totals.cupoNoUtilizado)} |
+| Activación | ${fmtPctPrompt(totals.activacionPct)} |
+| Cupo no utilizado % | ${fmtPctPrompt(totals.cupoNoUtilizadoPct)} |
+
+Resumen por producto:
+| Producto | Agencias | Monto autorizado | Saldo activado | Cupo no utilizado | Activación | % no utilizado |
+|---|---:|---:|---:|---:|---:|---:|
+${lcfByProduct.value.slice(0, 12).map((r) => `| ${r.producto} | ${Number(r.agenciasCount || 0).toLocaleString('en-US')} | ${fmtMoneyPrompt(r.montoAutorizado)} | ${fmtMoneyPrompt(r.saldoActivado)} | ${fmtMoneyPrompt(r.cupoNoUtilizado)} | ${fmtPctPrompt(r.activacionPct)} | ${fmtPctPrompt(r.cupoNoUtilizadoPct)} |`).join('\n')}
+
+Detalle:
+| Sucursal | Agencia | Producto | Monto autorizado | Saldo activado | Cupo no utilizado | Activación |
+|---|---|---|---:|---:|---:|---:|
+${rows}
+`.trim();
+}
+
+function buildSharedPortfolioTable(limit = 20) {
+  if (!sharedPortfolio.value?.length) return 'No hay información de cartera compartida disponible.';
+
+  const totals = sharedPortfolioTotals.value;
+
+  const rows = [...sharedPortfolioAgencyRows.value]
+      .sort((a, b) => safeNumber(b.otrosBancos) - safeNumber(a.otrosBancos))
+      .slice(0, limit)
+      .map((r) => `| ${r.sucursal || 'N/D'} | ${r.nombreAgencia || r.codAgencia || 'N/D'} | ${Number(r.clientesCompartidos || 0).toLocaleString('en-US')} | ${fmtMoneyPrompt(r.bnb)} | ${fmtMoneyPrompt(r.otrosBancos)} | ${fmtPctPrompt(r.participacionOtrosPct)} | ${r.prioridad || 'N/D'} |`)
+      .join('\n');
+
+  return `
+Cartera compartida:
+Resumen:
+| Métrica | Valor |
+|---|---:|
+| Clientes compartidos | ${Number(totals.clientesCompartidos || 0).toLocaleString('en-US')} |
+| Cartera BNB compartida | ${fmtMoneyPrompt(totals.bnb)} |
+| Cartera otros bancos | ${fmtMoneyPrompt(totals.otrosBancos)} |
+| Total compartido | ${fmtMoneyPrompt(totals.totalCompartido)} |
+| Participación BNB | ${fmtPctPrompt(totals.participacionBNBPct)} |
+| Participación otros bancos | ${fmtPctPrompt(totals.participacionOtrosPct)} |
+
+Detalle por agencia:
+| Sucursal | Agencia | Clientes | BNB | Otros bancos | Participación otros | Prioridad |
+|---|---|---:|---:|---:|---:|---|
+${rows}
+`.trim();
+}
+
+function buildOportunidadesTable(limit = 20) {
+  const rowsSource = oportunidadesByAgencia.value || [];
+
+  if (!rowsSource.length) return 'No hay matriz integrada de oportunidades disponible.';
+
+  const totals = oportunidadesTotals.value;
+
+  const rows = [...rowsSource]
+      .sort((a, b) => safeNumber(b.potencialTotal) - safeNumber(a.potencialTotal))
+      .slice(0, limit)
+      .map((r) => `| ${r.sucursal || 'N/D'} | ${r.nombreAgencia || r.codAgencia || 'N/D'} | ${fmtMoneyPrompt(r.potencialTotal)} | ${fmtMoneyPrompt(r.cupoNoUtilizadoLcf)} | ${fmtMoneyPrompt(r.carteraOtrosBancos)} | ${fmtPctPrompt(r.maduracionPct)} | ${fmtPctPrompt(r.activacionLcfPct)} | ${r.prioridad} |`)
+      .join('\n');
+
+  return `
+Oportunidades comerciales integradas:
+Resumen:
+| Métrica | Valor |
+|---|---:|
+| Oportunidad total | ${fmtMoneyPrompt(totals.oportunidadTotal)} |
+| LCF no utilizado | ${fmtMoneyPrompt(totals.lcfCupoNoUtilizado)} |
+| Cartera otros bancos | ${fmtMoneyPrompt(totals.carteraCompartidaPotencial)} |
+| Clientes compartidos | ${Number(totals.clientesCompartidos || 0).toLocaleString('en-US')} |
+| Maduración ponderada | ${fmtPctPrompt(totals.maduracionPct)} |
+| Activación LCF | ${fmtPctPrompt(totals.lcfActivacionPct)} |
+
+Ranking de agencias por potencial:
+| Sucursal | Agencia | Potencial total | LCF no utilizado | Otros bancos | Maduración | Activación LCF | Prioridad |
+|---|---|---:|---:|---:|---:|---:|---|
+${rows}
+`.trim();
+}
+
 function buildAgentPrompt({
                             title,
                             objective,
@@ -3421,7 +3766,12 @@ function buildAgentPrompt({
                             includeOfficials = false,
                             includeTimeSeries = false,
                             includeProjection = false,
-                            includePdRisk = false
+                            includePdRisk = false,
+                            includeCaptaciones = false,
+                            includeMaduracion = false,
+                            includeLcf = false,
+                            includeSharedPortfolio = false,
+                            includeOportunidades = false
                           }) {
   const blocks = [
     'Actúa como Gerente Comercial Senior de un banco y Analista Ejecutivo de Cartera.',
@@ -3441,6 +3791,15 @@ ${objective}
   if (includeTimeSeries) blocks.push(buildTimeSeriesTable());
   if (includeProjection) blocks.push(buildProjectionTable());
   if (includePdRisk) blocks.push(buildPdRiskTable());
+  if (includeCaptaciones) blocks.push(buildCaptacionesTable());
+  if (includeMaduracion) blocks.push(buildMaduracionTable());
+  if (includeLcf) blocks.push(buildLcfTable());
+  if (includeSharedPortfolio) blocks.push(buildSharedPortfolioTable());
+  if (includeOportunidades) blocks.push(buildOportunidadesTable());
+
+  const projectionInstruction = includeProjection
+      ? '- Puedes analizar proyecciones únicamente cuando el objetivo lo solicite y estén incluidas en los datos enviados.'
+      : '- No menciones proyecciones ni escenarios proyectados.';
 
   blocks.push(`
 Formato obligatorio de respuesta:
@@ -3450,12 +3809,13 @@ Formato obligatorio de respuesta:
 4. Análisis de productos críticos, productos líderes y productos con oportunidad.
 5. Riesgos comerciales, alertas tempranas y probabilidad de mora si existe información disponible.
 6. Lectura de proyección financiera si existe información disponible.
-7. Recomendaciones accionables para gerencia comercial.
+7. Lectura de captaciones, maduración, LCF y cartera compartida si existe información disponible.
+8. Recomendaciones accionables para gerencia comercial.
 
 Importante:
 - Cuando menciones periodos, usa formato yyyymm.
 - Si necesitas explicar el rango, indica desde qué periodo hasta qué periodo se observa la serie histórica.
-- No menciones proyecciones ni escenarios proyectados.
+${projectionInstruction}
 - No inventes datos futuros.
 - Analiza únicamente información real enviada en el mensaje.
 
@@ -3494,7 +3854,12 @@ Cuando analices periodos, usa formato yyyymm.
     includeOfficials: true,
     includeTimeSeries: true,
     includeProjection: true,
-    includePdRisk: true
+    includePdRisk: true,
+    includeCaptaciones: true,
+    includeMaduracion: true,
+    includeLcf: true,
+    includeSharedPortfolio: true,
+    includeOportunidades: true
   });
 
   sendChat(finalPrompt);
@@ -3663,8 +4028,94 @@ Cuando analices periodos, usa formato yyyymm.
     includeMarket: true,
     includeOfficials: true,
     includeTimeSeries: true,
-    includeProjection: true,
-    includePdRisk: true
+    includeProjection: false,
+    includePdRisk: true,
+    includeCaptaciones: true,
+    includeMaduracion: true,
+    includeLcf: true,
+    includeSharedPortfolio: true,
+    includeOportunidades: true
+  });
+
+  sendChat(finalPrompt);
+}
+
+
+function triggerCaptacionesAnalysis() {
+  const finalPrompt = buildAgentPrompt({
+    title: 'Análisis de captaciones',
+    objective: `
+Analiza el desempeño de captaciones frente al presupuesto, separando vista, ahorros y DPF/plazo.
+Identifica agencias con mejor desempeño, brechas y alertas según la categoría de captaciones disponible.
+Recomienda acciones comerciales para proteger saldos y recuperar captaciones.
+`,
+    includeCaptaciones: true,
+    includeTimeSeries: false,
+    includeProjection: false
+  });
+
+  sendChat(finalPrompt);
+}
+
+function triggerOportunidadesAnalysis() {
+  const finalPrompt = buildAgentPrompt({
+    title: 'Análisis integrado de oportunidades',
+    objective: `
+Analiza oportunidades comerciales integrando maduración de créditos, LCF no utilizado y cartera compartida.
+Aplica la regla de maduración: mayor maduración es peor y debe elevar la prioridad comercial, porque el crédito se está completando/venciendo.
+Prioriza agencias y productos por potencial total, activación pendiente, compra de deuda, maduración crítica y oportunidad accionable.
+Propón acciones concretas para convertir oportunidad en crecimiento de cartera.
+`,
+    includeOportunidades: true,
+    includeMaduracion: true,
+    includeLcf: true,
+    includeSharedPortfolio: true,
+    includeMarket: true
+  });
+
+  sendChat(finalPrompt);
+}
+
+function triggerMaduracionAnalysis() {
+  const finalPrompt = buildAgentPrompt({
+    title: 'Análisis de maduración de créditos',
+    objective: `
+Analiza la maduración de créditos usando stock vigente, monto desembolsado original y maduración ponderada.
+Regla obligatoria: mayor maduración es peor; una maduración alta indica que el crédito se está completando/venciendo y requiere prioridad comercial.
+Identifica agencias/productos con mayor maduración como los más críticos y recomienda acciones de recompra, renovación, retención, refinanciamiento, ampliación o seguimiento.
+`,
+    includeMaduracion: true,
+    includeOportunidades: true
+  });
+
+  sendChat(finalPrompt);
+}
+
+function triggerLcfAnalysis() {
+  const finalPrompt = buildAgentPrompt({
+    title: 'Análisis de líneas de crédito familiar',
+    objective: `
+Analiza las líneas de crédito familiar, separando monto autorizado, saldo activado y cupo no utilizado.
+Prioriza agencias donde exista mayor cupo pendiente de activar y recomienda acciones para acelerar utilización.
+`,
+    includeLcf: true,
+    includeOportunidades: true
+  });
+
+  sendChat(finalPrompt);
+}
+
+function triggerCarteraCompartidaAnalysis() {
+  const finalPrompt = buildAgentPrompt({
+    title: 'Análisis de cartera compartida y compra de deuda',
+    objective: `
+Analiza la cartera compartida entre BNB y otros bancos.
+Identifica agencias, segmentos y bancos con mayor potencial de compra de deuda, presión competitiva y oportunidad de captura.
+`,
+    includeSharedPortfolio: true,
+    includeOportunidades: true,
+    includeMarket: true,
+    includeCompetitors: true
   });
 
   sendChat(finalPrompt);
@@ -3736,7 +4187,6 @@ const captacionesBySucursal = computed(() => {
         presupuestadaAhorros: 0,
         ejecutadaPlazo: 0,
         presupuestadaPlazo: 0,
-        tendenciaCaptaciones: 0,
         categorias: new Map()
       });
     }
@@ -3755,7 +4205,6 @@ const captacionesBySucursal = computed(() => {
     item.ejecutadaPlazo += Number(row.ejecutadaPlazo || 0);
     item.presupuestadaPlazo += Number(row.presupuestadaPlazo || 0);
 
-    item.tendenciaCaptaciones += Number(row.tendenciaCaptaciones || 0);
 
     const categoria = row.categoriaTendencia || 'N/D';
     item.categorias.set(categoria, (item.categorias.get(categoria) || 0) + 1);
@@ -3795,20 +4244,25 @@ const captacionesBySucursal = computed(() => {
 const captacionesFugaRows = computed(() => {
   return captacionesByAgencia.value
       .map((row) => {
-        const tendencia = Number(row.tendenciaCaptaciones || 0);
-        const montoRiesgo = tendencia < 0 ? Math.abs(tendencia) : 0;
+        const categoriaTendencia = row.categoriaTendencia || 'N/D';
+        const nivelFuga = captacionFugaLevelFromCategory(categoriaTendencia);
 
         return {
           ...row,
-          montoRiesgo,
-          nivelFuga:
-              montoRiesgo >= 1_000_000 ? 'Alta' :
-                  montoRiesgo >= 250_000 ? 'Media' :
-                      montoRiesgo > 0 ? 'Baja' : 'Sin alerta'
+          categoriaTendencia,
+          nivelFuga,
+          montoRiesgo: nivelFuga === 'Sin alerta' ? 0 : Number(row.ejecutadaCaptaciones || 0)
         };
       })
-      .filter((row) => Number(row.montoRiesgo || 0) > 0)
-      .sort((a, b) => Number(b.montoRiesgo || 0) - Number(a.montoRiesgo || 0));
+      .filter((row) => row.nivelFuga !== 'Sin alerta')
+      .sort((a, b) => {
+        const order = { Alta: 3, Media: 2, Baja: 1, 'Sin alerta': 0 };
+        const levelCompare = Number(order[b.nivelFuga] || 0) - Number(order[a.nivelFuga] || 0);
+
+        if (levelCompare !== 0) return levelCompare;
+
+        return Number(b.montoRiesgo || 0) - Number(a.montoRiesgo || 0);
+      });
 });
 
 const captacionesFugaTotals = computed(() => {
@@ -3863,7 +4317,6 @@ const captacionesByAgencia = computed(() => {
         presupuestadaAhorros: 0,
         ejecutadaPlazo: 0,
         presupuestadaPlazo: 0,
-        tendenciaCaptaciones: 0,
         categorias: new Map()
       });
     }
@@ -3882,7 +4335,6 @@ const captacionesByAgencia = computed(() => {
     item.ejecutadaPlazo += Number(row.ejecutadaPlazo || 0);
     item.presupuestadaPlazo += Number(row.presupuestadaPlazo || 0);
 
-    item.tendenciaCaptaciones += Number(row.tendenciaCaptaciones || 0);
 
     const categoria = row.categoriaTendencia || 'N/D';
     item.categorias.set(categoria, (item.categorias.get(categoria) || 0) + 1);
@@ -3929,8 +4381,7 @@ const captacionesTrendRows = computed(() => {
       grouped.set(categoria, {
         categoria,
         cantidad: 0,
-        monto: 0,
-        tendencia: 0
+        monto: 0
       });
     }
 
@@ -3938,7 +4389,6 @@ const captacionesTrendRows = computed(() => {
 
     item.cantidad += 1;
     item.monto += Number(row.ejecutadaCaptaciones || 0);
-    item.tendencia += Number(row.tendenciaCaptaciones || 0);
   });
 
   return Array.from(grouped.values())
@@ -4280,6 +4730,831 @@ const captacionesStockBudgetOptions = {
     }
   }
 };
+
+const maduracionTotals = computed(() => {
+  const rows = maduracion.value || [];
+
+  const stock = rows.reduce((acc, row) => acc + Number(row.stock || 0), 0);
+  const montoDesembolso = rows.reduce((acc, row) => acc + Number(row.montoDesembolso || 0), 0);
+  const amortizadoEstimado = rows.reduce((acc, row) => acc + Number(row.amortizadoEstimado || 0), 0);
+
+  const maduracionPonderadaPct =
+      stock > 0
+          ? rows.reduce((acc, row) => acc + Number(row.maduracionPct || 0) * Number(row.stock || 0), 0) / stock
+          : null;
+
+  return {
+    stock,
+    montoDesembolso,
+    amortizadoEstimado,
+    maduracionPonderadaPct,
+    saldoSobreDesembolsoPct:
+        montoDesembolso > 0 ? (stock * 100) / montoDesembolso : null
+  };
+});
+
+const lcfTotals = computed(() => {
+  const rows = lcf.value || [];
+
+  const montoAutorizado = rows.reduce((acc, row) => acc + Number(row.montoAutorizado || 0), 0);
+
+  // Regla vigente: los campos llegan invertidos desde la consulta.
+  // saldoActivado visible = cupoNoUtilizado de la fuente.
+  // cupoNoUtilizado visible = saldoActivado de la fuente.
+  const saldoActivado = rows.reduce((acc, row) => acc + lcfSaldoActivadoValue(row), 0);
+  const cupoNoUtilizado = rows.reduce((acc, row) => acc + lcfCupoNoUtilizadoValue(row), 0);
+
+  return {
+    montoAutorizado,
+    saldoActivado,
+    cupoNoUtilizado,
+    activacionPct:
+        montoAutorizado > 0 ? (saldoActivado * 100) / montoAutorizado : null,
+    cupoNoUtilizadoPct:
+        montoAutorizado > 0 ? (cupoNoUtilizado * 100) / montoAutorizado : null
+  };
+});
+
+
+const maduracionByProduct = computed(() => {
+  const grouped = new Map();
+
+  (maduracion.value || []).forEach((row) => {
+    const producto = opportunityProduct(row);
+
+    if (!grouped.has(producto)) {
+      grouped.set(producto, {
+        producto,
+        agencias: new Set(),
+        stock: 0,
+        montoDesembolso: 0,
+        amortizadoEstimado: 0,
+        maduracionWeighted: 0
+      });
+    }
+
+    const item = grouped.get(producto);
+    const stock = Number(row.stock || 0);
+
+    item.agencias.add(row.codAgencia || row.nombreAgencia || 'N/D');
+    item.stock += stock;
+    item.montoDesembolso += Number(row.montoDesembolso || 0);
+    item.amortizadoEstimado += Number(row.amortizadoEstimado || 0);
+    item.maduracionWeighted += Number(row.maduracionPct || 0) * stock;
+  });
+
+  return Array.from(grouped.values())
+      .map((item) => ({
+        ...item,
+        agenciasCount: item.agencias.size,
+        maduracionPct: item.stock > 0 ? item.maduracionWeighted / item.stock : null,
+        saldoSobreDesembolsoPct:
+            item.montoDesembolso > 0 ? (item.stock * 100) / item.montoDesembolso : null
+      }))
+      .sort((a, b) => {
+        const riskCompare = maduracionRiskOrder(b.maduracionPct) - maduracionRiskOrder(a.maduracionPct);
+        if (riskCompare !== 0) return riskCompare;
+        return Number(b.maduracionPct ?? -999) - Number(a.maduracionPct ?? -999);
+      });
+});
+
+const lcfByProduct = computed(() => {
+  const grouped = new Map();
+
+  (lcf.value || []).forEach((row) => {
+    const producto = opportunityProduct(row);
+
+    if (!grouped.has(producto)) {
+      grouped.set(producto, {
+        producto,
+        agencias: new Set(),
+        montoAutorizado: 0,
+        saldoActivado: 0,
+        cupoNoUtilizado: 0
+      });
+    }
+
+    const item = grouped.get(producto);
+
+    item.agencias.add(row.codAgencia || row.nombreAgencia || 'N/D');
+    item.montoAutorizado += Number(row.montoAutorizado || 0);
+    item.saldoActivado += lcfSaldoActivadoValue(row);
+    item.cupoNoUtilizado += lcfCupoNoUtilizadoValue(row);
+  });
+
+  return Array.from(grouped.values())
+      .map((item) => ({
+        ...item,
+        agenciasCount: item.agencias.size,
+        activacionPct:
+            item.montoAutorizado > 0 ? (item.saldoActivado * 100) / item.montoAutorizado : null,
+        cupoNoUtilizadoPct:
+            item.montoAutorizado > 0 ? (item.cupoNoUtilizado * 100) / item.montoAutorizado : null
+      }))
+      .sort((a, b) => Number(b.cupoNoUtilizado || 0) - Number(a.cupoNoUtilizado || 0));
+});
+
+
+const maduracionByAgency = computed(() => {
+  const grouped = new Map();
+
+  (maduracion.value || []).forEach((row) => {
+    const key = `${row.sucursal || 'Sin sucursal'}|${row.codAgencia || 'N/D'}|${row.nombreAgencia || 'N/D'}`;
+
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        sucursal: row.sucursal || 'Sin sucursal',
+        codAgencia: row.codAgencia || 'N/D',
+        nombreAgencia: row.nombreAgencia || 'N/D',
+        productos: new Set(),
+        stock: 0,
+        montoDesembolso: 0,
+        amortizadoEstimado: 0,
+        maduracionWeighted: 0
+      });
+    }
+
+    const item = grouped.get(key);
+    const stock = Number(row.stock || 0);
+
+    item.productos.add(opportunityProduct(row));
+    item.stock += stock;
+    item.montoDesembolso += Number(row.montoDesembolso || 0);
+    item.amortizadoEstimado += Number(row.amortizadoEstimado || 0);
+    item.maduracionWeighted += Number(row.maduracionPct || 0) * stock;
+  });
+
+  return Array.from(grouped.values())
+      .map((item) => ({
+        ...item,
+        productosCount: item.productos.size,
+        maduracionPct: item.stock > 0 ? item.maduracionWeighted / item.stock : null,
+        saldoSobreDesembolsoPct:
+            item.montoDesembolso > 0 ? (item.stock * 100) / item.montoDesembolso : null
+      }))
+      .sort((a, b) => {
+        const riskCompare = maduracionRiskOrder(b.maduracionPct) - maduracionRiskOrder(a.maduracionPct);
+        if (riskCompare !== 0) return riskCompare;
+        return Number(b.maduracionPct ?? -999) - Number(a.maduracionPct ?? -999);
+      });
+});
+
+const lcfByAgency = computed(() => {
+  const grouped = new Map();
+
+  (lcf.value || []).forEach((row) => {
+    const key = `${row.sucursal || 'Sin sucursal'}|${row.codAgencia || 'N/D'}|${row.nombreAgencia || 'N/D'}`;
+
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        sucursal: row.sucursal || 'Sin sucursal',
+        codAgencia: row.codAgencia || 'N/D',
+        nombreAgencia: row.nombreAgencia || 'N/D',
+        productos: new Set(),
+        montoAutorizado: 0,
+        saldoActivado: 0,
+        cupoNoUtilizado: 0
+      });
+    }
+
+    const item = grouped.get(key);
+
+    item.productos.add(opportunityProduct(row));
+    item.montoAutorizado += Number(row.montoAutorizado || 0);
+    item.saldoActivado += lcfSaldoActivadoValue(row);
+    item.cupoNoUtilizado += lcfCupoNoUtilizadoValue(row);
+  });
+
+  return Array.from(grouped.values())
+      .map((item) => ({
+        ...item,
+        productosCount: item.productos.size,
+        activacionPct:
+            item.montoAutorizado > 0 ? (item.saldoActivado * 100) / item.montoAutorizado : null,
+        cupoNoUtilizadoPct:
+            item.montoAutorizado > 0 ? (item.cupoNoUtilizado * 100) / item.montoAutorizado : null
+      }))
+      .sort((a, b) => Number(b.cupoNoUtilizado || 0) - Number(a.cupoNoUtilizado || 0));
+});
+
+
+const lcfDetalleRows = computed(() =>
+    [...(lcf.value || [])]
+        .map((row) => {
+          const montoAutorizado = Number(row.montoAutorizado || 0);
+          const saldoActivado = lcfSaldoActivadoValue(row);
+          const cupoNoUtilizado = lcfCupoNoUtilizadoValue(row);
+
+          return {
+            ...row,
+            producto: opportunityProduct(row),
+            montoAutorizado,
+            saldoActivado,
+            cupoNoUtilizado,
+            activacionPct: montoAutorizado > 0 ? (saldoActivado * 100) / montoAutorizado : null,
+            cupoNoUtilizadoPct: montoAutorizado > 0 ? (cupoNoUtilizado * 100) / montoAutorizado : null
+          };
+        })
+        .sort((a, b) => Number(b.cupoNoUtilizado || 0) - Number(a.cupoNoUtilizado || 0))
+);
+
+const maduracionProductoChart = computed(() => {
+  const rows = [...maduracionByProduct.value]
+      .sort((a, b) => {
+        const riskCompare = maduracionRiskOrder(b.maduracionPct) - maduracionRiskOrder(a.maduracionPct);
+        if (riskCompare !== 0) return riskCompare;
+        return Number(b.maduracionPct ?? -999) - Number(a.maduracionPct ?? -999);
+      })
+      .slice(0, 10);
+
+  return {
+    labels: rows.map((row) => row.producto),
+    datasets: [
+      {
+        type: 'bar',
+        label: 'Stock vigente',
+        data: rows.map((row) => row.stock),
+        backgroundColor: '#26b460',
+        borderRadius: 10,
+        yAxisID: 'y',
+        metaRows: rows
+      },
+      {
+        type: 'bar',
+        label: 'Monto desembolsado',
+        data: rows.map((row) => row.montoDesembolso),
+        backgroundColor: '#8b5cf6',
+        borderRadius: 10,
+        yAxisID: 'y',
+        metaRows: rows
+      },
+      {
+        type: 'line',
+        label: 'Maduración %',
+        data: rows.map((row) => row.maduracionPct),
+        borderColor: '#f59e0b',
+        backgroundColor: '#f59e0b',
+        borderWidth: 3,
+        tension: 0.35,
+        pointRadius: 5,
+        pointHoverRadius: 8,
+        yAxisID: 'y1',
+        metaRows: rows
+      }
+    ]
+  };
+});
+
+const maduracionAgenciaChart = computed(() => {
+  const rows = [...maduracionByAgency.value]
+      .sort((a, b) => {
+        const riskCompare = maduracionRiskOrder(b.maduracionPct) - maduracionRiskOrder(a.maduracionPct);
+        if (riskCompare !== 0) return riskCompare;
+        return Number(b.maduracionPct ?? -999) - Number(a.maduracionPct ?? -999);
+      })
+      .slice(0, 10);
+
+  return {
+    labels: rows.map((row) => row.nombreAgencia),
+    datasets: [
+      {
+        type: 'bar',
+        label: 'Stock vigente',
+        data: rows.map((row) => row.stock),
+        backgroundColor: '#26b460',
+        borderRadius: 10,
+        yAxisID: 'y',
+        metaRows: rows
+      },
+      {
+        type: 'line',
+        label: 'Maduración %',
+        data: rows.map((row) => row.maduracionPct),
+        borderColor: '#f59e0b',
+        backgroundColor: '#f59e0b',
+        borderWidth: 3,
+        tension: 0.35,
+        pointRadius: 5,
+        pointHoverRadius: 8,
+        yAxisID: 'y1',
+        metaRows: rows
+      }
+    ]
+  };
+});
+
+const maduracionBandRows = computed(() => {
+  return maduracionByProduct.value
+      .map((productRow) => {
+        const sourceRows = (maduracion.value || []).filter((row) => opportunityProduct(row) === productRow.producto);
+
+        const buckets = {
+          normal: { creditos: 0, registros: 0, stock: 0 },
+          alerta: { creditos: 0, registros: 0, stock: 0 },
+          critico: { creditos: 0, registros: 0, stock: 0 }
+        };
+
+        let hasCreditCount = false;
+
+        sourceRows.forEach((row) => {
+          const explicitCreditCount = creditCountValue(row);
+          const stock = Number(row.stock || 0);
+          const level = maduracionAlertLevel(row.maduracionPct);
+          const bucketKey = level === 'Crítico' ? 'critico' : level === 'Alerta' ? 'alerta' : 'normal';
+
+          buckets[bucketKey].registros += 1;
+          buckets[bucketKey].stock += stock;
+
+          if (explicitCreditCount !== null) {
+            hasCreditCount = true;
+            buckets[bucketKey].creditos += explicitCreditCount;
+          }
+        });
+
+        const totalCreditos = buckets.normal.creditos + buckets.alerta.creditos + buckets.critico.creditos;
+        const totalRegistros = buckets.normal.registros + buckets.alerta.registros + buckets.critico.registros;
+        const totalStock = buckets.normal.stock + buckets.alerta.stock + buckets.critico.stock;
+
+        return {
+          ...productRow,
+          hasCreditCount,
+          creditos: hasCreditCount ? totalCreditos : null,
+          registrosFuente: totalRegistros,
+          normalCreditos: hasCreditCount ? buckets.normal.creditos : null,
+          alertaCreditos: hasCreditCount ? buckets.alerta.creditos : null,
+          criticoCreditos: hasCreditCount ? buckets.critico.creditos : null,
+          normalRegistros: buckets.normal.registros,
+          alertaRegistros: buckets.alerta.registros,
+          criticoRegistros: buckets.critico.registros,
+          normalPct: totalStock > 0 ? (buckets.normal.stock * 100) / totalStock : 0,
+          alertaPct: totalStock > 0 ? (buckets.alerta.stock * 100) / totalStock : 0,
+          criticoPct: totalStock > 0 ? (buckets.critico.stock * 100) / totalStock : 0,
+          normalStock: buckets.normal.stock,
+          alertaStock: buckets.alerta.stock,
+          criticoStock: buckets.critico.stock
+        };
+      })
+      .sort((a, b) => Number(b.maduracionPct ?? -999) - Number(a.maduracionPct ?? -999));
+});
+
+const maduracionBandChart = computed(() => {
+  const rows = maduracionBandRows.value.slice(0, 10);
+
+  return {
+    labels: rows.map((row) => row.producto),
+    datasets: [
+      {
+        label: 'Normal <30%',
+        data: rows.map((row) => row.normalPct),
+        backgroundColor: '#26b460',
+        borderRadius: 8,
+        metaRows: rows
+      },
+      {
+        label: 'Alerta 30–50%',
+        data: rows.map((row) => row.alertaPct),
+        backgroundColor: '#f59e0b',
+        borderRadius: 8,
+        metaRows: rows
+      },
+      {
+        label: 'Crítico >50%',
+        data: rows.map((row) => row.criticoPct),
+        backgroundColor: '#e05252',
+        borderRadius: 8,
+        metaRows: rows
+      }
+    ]
+  };
+});
+
+const maduracionSemaforoRows = computed(() => {
+  return maduracionBandRows.value
+      .map((row) => ({
+        ...row,
+        montoAlerta: Number(row.alertaStock || 0) + Number(row.criticoStock || 0),
+        alertaTotalPct:
+            Number(row.stock || 0) > 0
+                ? ((Number(row.alertaStock || 0) + Number(row.criticoStock || 0)) * 100) / Number(row.stock || 0)
+                : null
+      }))
+      .sort((a, b) => Number(b.montoAlerta || 0) - Number(a.montoAlerta || 0))
+      .slice(0, 8);
+});
+
+const maduracionSucursalProductoRows = computed(() => {
+  const grouped = new Map();
+
+  (maduracion.value || []).forEach((row) => {
+    const sucursal = row.sucursal || 'Sin sucursal';
+    const producto = opportunityProduct(row);
+    const key = `${sucursal}|${producto}`;
+
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        sucursal,
+        producto,
+        creditos: 0,
+        hasCreditCount: false,
+        registrosFuente: 0,
+        stock: 0,
+        montoDesembolso: 0,
+        maduracionWeighted: 0
+      });
+    }
+
+    const item = grouped.get(key);
+    const stock = Number(row.stock || 0);
+    const creditos = creditCountValue(row);
+
+    item.registrosFuente += 1;
+    if (creditos !== null) {
+      item.hasCreditCount = true;
+      item.creditos += creditos;
+    }
+    item.stock += stock;
+    item.montoDesembolso += Number(row.montoDesembolso || 0);
+    item.maduracionWeighted += Number(row.maduracionPct || 0) * stock;
+  });
+
+  return Array.from(grouped.values())
+      .map((item) => {
+        const maduracionPct = item.stock > 0 ? item.maduracionWeighted / item.stock : null;
+
+        return {
+          ...item,
+          creditos: item.hasCreditCount ? item.creditos : null,
+          cantidadOrden: item.hasCreditCount ? item.creditos : item.registrosFuente,
+          maduracionPct,
+          alerta: maduracionAlertLevel(maduracionPct)
+        };
+      })
+      .sort((a, b) => Number(b.maduracionPct ?? -999) - Number(a.maduracionPct ?? -999));
+});
+
+const maduracionDetalleAgenciaRows = computed(() => {
+  return [...(maduracion.value || [])]
+      .map((row) => ({
+        ...row,
+        producto: opportunityProduct(row),
+        maduracionPct: Number.isFinite(Number(row.maduracionPct)) ? Number(row.maduracionPct) : null,
+        stock: Number(row.stock || 0),
+        montoDesembolso: Number(row.montoDesembolso || 0),
+        saldoSobreDesembolsoPct: Number.isFinite(Number(row.saldoSobreDesembolsoPct)) ? Number(row.saldoSobreDesembolsoPct) : null
+      }))
+      .sort((a, b) => Number(b.maduracionPct ?? -999) - Number(a.maduracionPct ?? -999));
+});
+
+const maduracionBandChartOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  interaction: {
+    mode: 'index',
+    intersect: false
+  },
+  plugins: {
+    legend: {
+      display: true,
+      position: 'top',
+      labels: {
+        color: '#4a6355',
+        boxWidth: 12,
+        padding: 16,
+        usePointStyle: true
+      }
+    },
+    tooltip: {
+      ...tooltipBase,
+      callbacks: {
+        label: (ctx) => ` ${ctx.dataset.label}: ${Number(ctx.raw || 0).toFixed(2)}%`,
+        afterBody: (items) => {
+          const first = items?.[0];
+          const row = first?.dataset?.metaRows?.[first.dataIndex];
+
+          if (!row) return [];
+
+          return [
+            '',
+            `Créditos / registros: ${row.creditos !== null && row.creditos !== undefined ? `${Number(row.creditos || 0).toLocaleString('en-US')} créditos` : `${Number(row.registrosFuente || 0).toLocaleString('en-US')} registros fuente`}`,
+            `Stock total: ${moneyFullNoDecimals(row.stock)}`,
+            `Crítico: ${moneyFullNoDecimals(row.criticoStock)}`,
+            `Alerta: ${moneyFullNoDecimals(row.alertaStock)}`,
+            `Normal: ${moneyFullNoDecimals(row.normalStock)}`
+          ];
+        }
+      }
+    }
+  },
+  scales: {
+    x: {
+      stacked: true,
+      grid: { color: 'rgba(15,31,22,.04)', drawBorder: false },
+      ticks: {
+        color: '#6f8177',
+        font: { size: 11, weight: '600' },
+        maxRotation: 30,
+        minRotation: 0
+      }
+    },
+    y: {
+      stacked: true,
+      beginAtZero: true,
+      max: 100,
+      grid: { color: 'rgba(15,31,22,.05)', drawBorder: false },
+      ticks: {
+        color: '#6f8177',
+        callback: (value) => `${Number(value).toFixed(0)}%`
+      }
+    }
+  }
+};
+
+const lcfProductoChart = computed(() => {
+  const rows = lcfByProduct.value.slice(0, 10);
+
+  return {
+    labels: rows.map((row) => row.producto),
+    datasets: [
+      {
+        type: 'bar',
+        label: 'Cupo no utilizado',
+        data: rows.map((row) => row.cupoNoUtilizado),
+        backgroundColor: '#26b460',
+        borderRadius: 10,
+        yAxisID: 'y',
+        metaRows: rows
+      },
+      {
+        type: 'bar',
+        label: 'Saldo activado',
+        data: rows.map((row) => row.saldoActivado),
+        backgroundColor: '#8b5cf6',
+        borderRadius: 10,
+        yAxisID: 'y',
+        metaRows: rows
+      },
+      {
+        type: 'line',
+        label: 'Activación %',
+        data: rows.map((row) => row.activacionPct),
+        borderColor: '#f59e0b',
+        backgroundColor: '#f59e0b',
+        borderWidth: 3,
+        tension: 0.35,
+        pointRadius: 5,
+        pointHoverRadius: 8,
+        yAxisID: 'y1',
+        metaRows: rows
+      }
+    ]
+  };
+});
+
+const lcfAgenciaChart = computed(() => {
+  const rows = lcfByAgency.value.slice(0, 10);
+
+  return {
+    labels: rows.map((row) => row.nombreAgencia),
+    datasets: [
+      {
+        type: 'bar',
+        label: 'Cupo no utilizado',
+        data: rows.map((row) => row.cupoNoUtilizado),
+        backgroundColor: '#26b460',
+        borderRadius: 10,
+        yAxisID: 'y',
+        metaRows: rows
+      },
+      {
+        type: 'line',
+        label: 'Activación %',
+        data: rows.map((row) => row.activacionPct),
+        borderColor: '#f59e0b',
+        backgroundColor: '#f59e0b',
+        borderWidth: 3,
+        tension: 0.35,
+        pointRadius: 5,
+        pointHoverRadius: 8,
+        yAxisID: 'y1',
+        metaRows: rows
+      }
+    ]
+  };
+});
+
+const opportunityMixedChartOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  interaction: {
+    mode: 'index',
+    intersect: false
+  },
+  plugins: {
+    legend: {
+      display: true,
+      position: 'top',
+      labels: {
+        color: '#4a6355',
+        boxWidth: 12,
+        padding: 16,
+        usePointStyle: true
+      }
+    },
+    tooltip: {
+      ...tooltipBase,
+      callbacks: {
+        label: (ctx) => {
+          const value = Number(ctx.raw || 0);
+
+          if (String(ctx.dataset.label || '').includes('%')) {
+            return ` ${ctx.dataset.label}: ${Number(value).toFixed(2)}%`;
+          }
+
+          return ` ${ctx.dataset.label}: ${moneyFullNoDecimals(value)}`;
+        }
+      }
+    }
+  },
+  scales: {
+    x: {
+      grid: { color: 'rgba(15,31,22,.04)', drawBorder: false },
+      ticks: {
+        color: '#6f8177',
+        font: { size: 11, weight: '600' },
+        autoSkip: false,
+        maxRotation: 30,
+        minRotation: 0
+      }
+    },
+    y: {
+      beginAtZero: true,
+      position: 'left',
+      grid: { color: 'rgba(15,31,22,.05)', drawBorder: false },
+      ticks: {
+        color: '#6f8177',
+        callback: (value) => moneyFullNoDecimals(value)
+      }
+    },
+    y1: {
+      beginAtZero: true,
+      position: 'right',
+      grid: {
+        drawOnChartArea: false
+      },
+      ticks: {
+        color: '#6f8177',
+        callback: (value) => `${Number(value).toFixed(0)}%`
+      }
+    }
+  }
+};
+
+const oportunidadesTotals = computed(() => ({
+  maduracionStock: maduracionTotals.value.stock,
+  maduracionPct: maduracionTotals.value.maduracionPonderadaPct,
+  lcfCupoNoUtilizado: lcfTotals.value.cupoNoUtilizado,
+  lcfActivacionPct: lcfTotals.value.activacionPct,
+  carteraCompartidaPotencial: sharedPortfolioTotals.value.otrosBancos,
+  clientesCompartidos: sharedPortfolioTotals.value.clientesCompartidos,
+  oportunidadTotal:
+      Number(lcfTotals.value.cupoNoUtilizado || 0) +
+      Number(sharedPortfolioTotals.value.otrosBancos || 0)
+}));
+
+const oportunidadesByAgencia = computed(() => {
+  const grouped = new Map();
+
+  function ensureAgency(row) {
+    const key = `${row.sucursal || 'Sin sucursal'}|${row.codAgencia || 'N/D'}|${row.nombreAgencia || 'N/D'}`;
+
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        sucursal: row.sucursal || 'Sin sucursal',
+        codAgencia: row.codAgencia || 'N/D',
+        nombreAgencia: row.nombreAgencia || 'N/D',
+
+        stockMaduracion: 0,
+        montoDesembolsoMaduracion: 0,
+        maduracionWeighted: 0,
+
+        montoAutorizadoLcf: 0,
+        saldoActivadoLcf: 0,
+        cupoNoUtilizadoLcf: 0,
+
+        clientesCompartidos: 0,
+        carteraBNBCompartida: 0,
+        carteraOtrosBancos: 0,
+        totalCompartido: 0
+      });
+    }
+
+    return grouped.get(key);
+  }
+
+  (maduracion.value || []).forEach((row) => {
+    const item = ensureAgency(row);
+    const stock = Number(row.stock || 0);
+
+    item.stockMaduracion += stock;
+    item.montoDesembolsoMaduracion += Number(row.montoDesembolso || 0);
+    item.maduracionWeighted += Number(row.maduracionPct || 0) * stock;
+  });
+
+  (lcf.value || []).forEach((row) => {
+    const item = ensureAgency(row);
+
+    item.montoAutorizadoLcf += Number(row.montoAutorizado || 0);
+    item.saldoActivadoLcf += lcfSaldoActivadoValue(row);
+    item.cupoNoUtilizadoLcf += lcfCupoNoUtilizadoValue(row);
+  });
+
+  (sharedPortfolio.value || []).forEach((row) => {
+    const item = ensureAgency(row);
+
+    item.clientesCompartidos += Number(row.clientesCompartidos || 0);
+    item.carteraBNBCompartida += Number(row.bnb || 0);
+    item.carteraOtrosBancos += Number(row.otrosBancos || 0);
+    item.totalCompartido += Number(row.totalCompartido || 0);
+  });
+
+  return Array.from(grouped.values())
+      .map((item) => {
+        const maduracionPct =
+            item.stockMaduracion > 0
+                ? item.maduracionWeighted / item.stockMaduracion
+                : null;
+
+        const activacionLcfPct =
+            item.montoAutorizadoLcf > 0
+                ? (item.saldoActivadoLcf * 100) / item.montoAutorizadoLcf
+                : null;
+
+        const potencialTotal =
+            Number(item.cupoNoUtilizadoLcf || 0) +
+            Number(item.carteraOtrosBancos || 0);
+
+        return {
+          ...item,
+          maduracionPct,
+          activacionLcfPct,
+          potencialTotal,
+          participacionOtrosPct:
+              item.totalCompartido > 0 ? (item.carteraOtrosBancos * 100) / item.totalCompartido : null,
+          prioridad:
+              potencialTotal >= 5_000_000 || Number(maduracionPct || 0) > 50 ? 'Alta' :
+                  potencialTotal >= 1_000_000 || Number(maduracionPct || 0) >= 30 ? 'Media' : 'Baja'
+        };
+      })
+      .sort((a, b) => Number(b.potencialTotal || 0) - Number(a.potencialTotal || 0));
+});
+
+const oportunidadesResumenChart = computed(() => ({
+  labels: ['LCF no utilizado', 'Cartera otros bancos'],
+  datasets: [
+    {
+      label: 'Potencial USD',
+      data: [
+        lcfTotals.value.cupoNoUtilizado,
+        sharedPortfolioTotals.value.otrosBancos
+      ],
+      backgroundColor: ['#26b460', '#8b5cf6'],
+      borderRadius: 10
+    }
+  ]
+}));
+
+const oportunidadesResumenOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: {display: false},
+    tooltip: {
+      ...tooltipBase,
+      callbacks: {
+        label: (ctx) => {
+          const value = Number(ctx.raw || 0);
+          return ` ${ctx.label}: ${moneyFullNoDecimals(value)}`;
+        }
+      }
+    }
+  },
+  scales: {
+    x: {
+      grid: {display: false, drawBorder: false},
+      ticks: {color: '#4a6355', font: {size: 11, weight: '600'}}
+    },
+    y: {
+      beginAtZero: true,
+      grid: {color: 'rgba(15,31,22,.05)', drawBorder: false},
+      ticks: {
+        color: '#6f8177',
+        callback: (value) => moneyFullNoDecimals(value)
+      }
+    }
+  }
+};
+
+
 // ─────────────────────────────────────────────────────────────
 // Carga de datos
 // ─────────────────────────────────────────────────────────────
@@ -4300,7 +5575,6 @@ async function loadAll() {
       health,
       catalogRes,
       summaryRes,
-      kpisRes,
       kpisProdRes,
       timeseriesRes,
       projectionRes,
@@ -4312,12 +5586,13 @@ async function loadAll() {
       pdRiskRes,
       pdRiskHistoryRes,
       captacionesRes,
-      captacionesHistoricoRes
+      captacionesHistoricoRes,
+      maduracionRes,
+      lcfRes
     ] = await Promise.all([
       api.health().catch(() => ({mode: 'offline'})),
       api.catalogs(),
       api.summary(params),
-      api.kpis(params),
       api.kpisByProduct(params),
       api.timeseries(params),
       fetchMergedProjection(params),
@@ -4332,7 +5607,9 @@ async function loadAll() {
       api.captacionesHistorico({
         sucursal: filtersApplied.value.sucursal,
         agencia: filtersApplied.value.agencia
-      }).catch(() => ({data: []}))
+      }).catch(() => ({data: []})),
+      api.maduracion(params).catch(() => ({data: []})),
+      api.lcf(params).catch(() => ({data: []}))
     ]);
 
     dataMode.value = health.mode || summaryRes.mode || 'mock';
@@ -4345,7 +5622,6 @@ async function loadAll() {
     }
 
     summary.value = summaryRes.data;
-    kpis.value = kpisRes.data;
     kpisProductData.value = kpisProdRes.data;
     filteredTimeSeries.value = timeseriesRes.data;
     projection.value = projectionRes.data;
@@ -4358,6 +5634,8 @@ async function loadAll() {
     pdRiskHistory.value = pdRiskHistoryRes.data;
     captaciones.value = captacionesRes.data;
     captacionesHistorico.value = captacionesHistoricoRes.data;
+    maduracion.value = maduracionRes.data;
+    lcf.value = lcfRes.data;
     await loadProjectionByProduct();
   } finally {
     loading.value = false;
@@ -4365,31 +5643,6 @@ async function loadAll() {
 }
 
 
-async function toggleProjProduct(product) {
-  if (selectedProjProducts.value.includes(product)) {
-    selectedProjProducts.value = selectedProjProducts.value.filter((p) => p !== product);
-    return;
-  }
-
-  selectedProjProducts.value.push(product);
-
-  if (!projectionProductData.value[product]) {
-    try {
-      projectionProductData.value[product] = await fetchMergedProjectionByProduct(product);
-    } catch (error) {
-      console.error('projectionByProduct error:', product, error);
-      projectionProductData.value[product] = [];
-    }
-  }
-
-  const response = await api.projection(nextScenario, filtersApplied.value);
-  projection.value = response.data;
-
-  for (const prod of Object.keys(projectionProductData.value)) {
-    const res = await api.projectionByProduct(nextScenario, prod);
-    projectionProductData.value[prod] = res.data;
-  }
-}
 
 function applyFilters() {
   filtersApplied.value = cloneFilters(filtersDraft.value);
@@ -4482,33 +5735,13 @@ function setActive(id) {
 // Helpers de presentación
 // ─────────────────────────────────────────────────────────────
 
-function kpiValue(kpi) {
-  return kpi.unit === 'percent' ? percent(kpi.value) : moneyFull(kpi.value);
-}
 
 function trendClass(value) {
   if (value === null || value === undefined) return 'trend-neutral';
   return Number(value) >= 0 ? 'trend-up' : 'trend-down';
 }
 
-function progressValue(value) {
-  const n = Number(value);
 
-  if (!Number.isFinite(n)) {
-    return 0;
-  }
-
-  return Math.max(0, Math.min(n, 100));
-}
-
-function amountK(value) {
-  const n = Number(value || 0);
-
-  return n.toLocaleString('en-US', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  });
-}
 
 function moneyKFull(value) {
   const n = Number(value || 0);
@@ -4529,12 +5762,6 @@ function signedMoneyK(value) {
   })}`;
 }
 
-function heatClass(value) {
-  if (value === null || value === undefined) return 'heat-empty';
-  if (value > 1) return 'heat-good';
-  if (value >= -1) return 'heat-watch';
-  return 'heat-risk';
-}
 
 // ─────────────────────────────────────────────────────────────
 // Ciclo de vida
@@ -4571,7 +5798,6 @@ onMounted(async () => {
         <div class="brand-mark">BNB</div>
         <div>
           <strong>Hub Analitico</strong>
-          <span>Gestion de cartera</span>
         </div>
       </div>
 
@@ -4766,6 +5992,107 @@ onMounted(async () => {
 
           <div class="section-header">
             <div>
+              <span>Resumen integrado</span>
+              <h3>Captaciones, maduración, LCF y cartera compartida</h3>
+            </div>
+            <Tag severity="info" value="Nuevas fuentes"/>
+          </div>
+
+          <div class="summary-kpi-grid">
+            <Card
+                v-for="item in portadaIntegratedSummaryCards"
+                :key="item.label"
+                class="summary-kpi-card"
+                :class="`summary-tone-${item.tone}`"
+            >
+              <template #content>
+                <div class="summary-kpi-top">
+                  <span>{{ item.label }}</span>
+                  <div class="summary-kpi-icon">
+                    <font-awesome-icon :icon="item.icon"/>
+                  </div>
+                </div>
+                <strong>{{ item.value }}</strong>
+                <small>{{ item.helper }}</small>
+              </template>
+            </Card>
+          </div>
+
+          <div class="system-grid portada-integrated-grid">
+            <Card class="elevated-card">
+              <template #title>
+                <div class="card-title-rich">
+                  <div class="card-title-icon bg-amber">
+                    <font-awesome-icon icon="triangle-exclamation"/>
+                  </div>
+                  <div>
+                    <strong>Alertas y oportunidades ejecutivas</strong>
+                    <small>Lectura rápida para priorización comercial</small>
+                  </div>
+                </div>
+              </template>
+              <template #content>
+                <div class="growth-leaders-grid growth-leaders-wide">
+                  <div
+                      v-for="alert in portadaExecutiveAlerts"
+                      :key="alert.title"
+                      class="growth-leader-card"
+                  >
+                    <div class="growth-leader-head">
+                      <div class="growth-rank">
+                        <font-awesome-icon :icon="alert.icon"/>
+                      </div>
+                      <Tag
+                          :severity="alert.tone === 'danger' ? 'danger' : alert.tone === 'warning' ? 'warning' : alert.tone === 'success' ? 'success' : 'info'"
+                          :value="alert.tone === 'danger' ? 'Alerta' : alert.tone === 'warning' ? 'Seguimiento' : 'Oportunidad'"
+                      />
+                    </div>
+                    <div class="growth-leader-body">
+                      <strong>{{ alert.title }}</strong>
+                      <span class="growth-bank">{{ alert.detail }}</span>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </Card>
+
+            <Card class="elevated-card">
+              <template #title>
+                <div class="card-title-rich">
+                  <div class="card-title-icon bg-green">
+                    <font-awesome-icon icon="lightbulb"/>
+                  </div>
+                  <div>
+                    <strong>Top agencias por oportunidad total</strong>
+                    <small>LCF no utilizado + cartera en otros bancos</small>
+                  </div>
+                </div>
+              </template>
+              <template #content>
+                <DataTable
+                    :value="portadaOpportunityAgencyTop"
+                    responsive-layout="scroll"
+                    showGridlines
+                >
+                  <Column field="nombreAgencia" header="Agencia"/>
+                  <Column field="potencialTotal" header="Potencial">
+                    <template #body="{ data }">
+                      <strong>{{ moneyFull(data.potencialTotal) }}</strong>
+                    </template>
+                  </Column>
+                  <Column field="cupoNoUtilizadoLcf" header="LCF">
+                    <template #body="{ data }">{{ moneyFull(data.cupoNoUtilizadoLcf) }}</template>
+                  </Column>
+                  <Column field="carteraOtrosBancos" header="Otros bancos">
+                    <template #body="{ data }">{{ moneyFull(data.carteraOtrosBancos) }}</template>
+                  </Column>
+                </DataTable>
+              </template>
+            </Card>
+          </div>
+
+          <div class="section-header">
+            <div>
               <span>Visuales clave</span>
               <h3>Resumen gráfico del estado actual</h3>
             </div>
@@ -4919,34 +6246,228 @@ onMounted(async () => {
         <!-- ═══ GOBERNANZA ════════════════════════════════════════════════════ -->
         <section v-show="active === 'gobernanza'" class="page-grid">
           <div class="section-header">
-            <div><span>Fuente de verdad</span>
-              <h3>Marco comercial de cartera</h3></div>
-            <Tag severity="success" value="SELECT / WITH"/>
+            <div>
+              <span>Dominio comercial · Gestión de cartera</span>
+              <h3>Marco de gobernanza</h3>
+              <small>Fuente única de verdad, métricas oficiales y protocolo de validación del agente</small>
+            </div>
+            <Tag severity="success" value="Gobernanza"/>
           </div>
 
+          <Card class="formula-card">
+            <template #content>
+              <span>Fuente única de verdad</span>
+              <strong>Cartera Activa · Hub_CarteraBNB</strong>
+              <p>
+                Toda la información comercial de cartera debe interpretarse desde la fuente oficial disponible en el hub.
+                La granularidad operativa se controla por fecha de corte, sucursal, agencia y producto. Ningún indicador
+                debe redefinirse fuera de este marco.
+              </p>
+            </template>
+          </Card>
+
           <div class="governance-grid">
-            <Card>
-              <template #title>Tablas habilitadas</template>
+            <Card class="elevated-card">
+              <template #title>
+                <div class="card-title-rich">
+                  <div class="card-title-icon bg-green">
+                    <font-awesome-icon icon="ruler-combined"/>
+                  </div>
+                  <div>
+                    <strong>Definiciones oficiales de métricas</strong>
+                    <small>Campos base usados para construir indicadores ejecutivos</small>
+                  </div>
+                </div>
+              </template>
               <template #content>
                 <div class="table-list">
                   <div>
-                    <strong>Hub_CarteraBNB</strong><span>stock, Desembolso, pendiente, presupuesto, amortizacion</span>
+                    <strong>Stock actual</strong>
+                    <span>Saldo vigente de cartera al cierre del periodo · <code>SUM(stock)</code></span>
                   </div>
-                  <div><strong>DimAgencia</strong><span>Region, Sucursal, Agencia y nombres alternativos</span></div>
-                  <div><strong>Hub_CarteraSF</strong><span>banco, segmentacioncredito, Sucursal, monto</span></div>
-                  <div><strong>Hub_OONN</strong><span>Oficial y MontoDesembolsoDolares</span></div>
+                  <div>
+                    <strong>Desembolsos</strong>
+                    <span>Producción comercial desembolsada en el periodo · <code>SUM(Desembolso)</code></span>
+                  </div>
+                  <div>
+                    <strong>Amortización</strong>
+                    <span>Recuperación o reducción de cartera registrada en el periodo · <code>SUM(amortizacion)</code></span>
+                  </div>
+                  <div>
+                    <strong>Pendiente</strong>
+                    <span>Pipeline aprobado o pendiente de desembolso · <code>SUM(pendiente)</code></span>
+                  </div>
+                  <div>
+                    <strong>Presupuesto</strong>
+                    <span>Meta comercial de stock o ejecución según corte · <code>SUM(presupuesto)</code></span>
+                  </div>
                 </div>
               </template>
             </Card>
-            <Card>
-              <template #title>Reglas criticas</template>
+
+            <div style="display:flex;flex-direction:column;gap:16px;">
+              <Card class="elevated-card">
+                <template #title>
+                  <div class="card-title-rich">
+                    <div class="card-title-icon bg-purple">
+                      <font-awesome-icon icon="calculator"/>
+                    </div>
+                    <div>
+                      <strong>Indicadores derivados</strong>
+                      <small>Reglas obligatorias para reportes y respuestas del agente</small>
+                    </div>
+                  </div>
+                </template>
+                <template #content>
+                  <ul class="rules-list">
+                    <li>Crecimiento nominal = <code>StockActual - StockBase Dic-25</code>.</li>
+                    <li>Crecimiento porcentual = <code>((StockActual / StockBase) - 1) * 100</code>.</li>
+                    <li>Cumplimiento presupuesto = <code>StockActual / Presupuesto * 100</code>.</li>
+                    <li>Brecha presupuesto = <code>StockActual - Presupuesto</code>.</li>
+                    <li>Participación BNB en sistema financiero incluye BNB dentro del denominador total.</li>
+                  </ul>
+                </template>
+              </Card>
+
+              <Card class="elevated-card">
+                <template #title>
+                  <div class="card-title-rich">
+                    <div class="card-title-icon bg-blue">
+                      <font-awesome-icon icon="users-gear"/>
+                    </div>
+                    <div>
+                      <strong>Roles y responsabilidades</strong>
+                      <small>Modelo mínimo de gobierno del dato comercial</small>
+                    </div>
+                  </div>
+                </template>
+                <template #content>
+                  <DataTable
+                      :value="[
+                        { rol: 'Data Owner', funcion: 'Define métricas, reglas de negocio y criterios de lectura comercial.' },
+                        { rol: 'Data Steward', funcion: 'Controla calidad, consistencia, catálogos y cierres disponibles.' },
+                        { rol: 'BI Analyst', funcion: 'Construye análisis y visuales bajo el marco aprobado.' },
+                        { rol: 'Usuario final', funcion: 'Consume información validada y solicita aclaraciones cuando el dato no sea suficiente.' }
+                      ]"
+                      responsive-layout="scroll"
+                      showGridlines
+                  >
+                    <Column field="rol" header="Rol">
+                      <template #body="{ data }">
+                        <Tag
+                            :severity="data.rol === 'Data Owner' ? 'info' : data.rol === 'Data Steward' ? 'success' : data.rol === 'BI Analyst' ? 'warning' : 'secondary'"
+                            :value="data.rol"
+                        />
+                      </template>
+                    </Column>
+                    <Column field="funcion" header="Función"/>
+                  </DataTable>
+                </template>
+              </Card>
+            </div>
+          </div>
+
+          <Card class="formula-card">
+            <template #content>
+              <span>Relación financiera del modelo</span>
+              <strong>Stock(t) ≈ Stock(t-1) + Desembolsos(t) - Amortizaciones(t)</strong>
+              <p>
+                La relación es aproximada. Pueden existir ajustes contables, castigos, reclasificaciones,
+                compras o ventas de cartera que expliquen diferencias entre saldos y flujos.
+              </p>
+            </template>
+          </Card>
+
+          <div class="section-header" style="margin-top:8px;">
+            <div>
+              <span>Self-correction</span>
+              <h3>Protocolo de validación de resultados</h3>
+              <small>El agente debe validar coherencia financiera, catálogos y fechas antes de responder</small>
+            </div>
+            <Tag severity="warning" value="Sección 7"/>
+          </div>
+
+          <div class="governance-grid">
+            <Card class="elevated-card">
+              <template #title>
+                <div class="card-title-rich">
+                  <div class="card-title-icon bg-red">
+                    <font-awesome-icon icon="chart-pie"/>
+                  </div>
+                  <div>
+                    <strong>7.1 Coherencia financiera</strong>
+                    <small>Validaciones antes de interpretar saldos y crecimiento</small>
+                  </div>
+                </div>
+              </template>
               <template #content>
                 <ul class="rules-list">
-                  <li>Cumplimiento = <code>SUM(s.stock) / SUM(s.presupuesto) * 100</code>.</li>
-                  <li>Banco propio en SF = <code>sf.banco = 'BNB'</code>.</li>
-                  <li>No se usa <code>SaldoDeudor</code>, <code>Pendiente</code>, <code>Presupuesto</code> ni <code>Amortizacion</code>.
-                  </li>
-                  <li>CONSUMO homologado incluye consumo, vehicular y tarjetas.</li>
+                  <li>Si <code>SUM(stock) &lt; 0</code>, reportar inconsistencia y no presentar el saldo como válido.</li>
+                  <li>Si el crecimiento mensual supera 100%, añadir nota por posible base baja o carga masiva.</li>
+                  <li>Si <code>StockBase</code> es cero o nulo, devolver <strong>N/A</strong> en crecimiento porcentual.</li>
+                </ul>
+              </template>
+            </Card>
+
+            <Card class="elevated-card">
+              <template #title>
+                <div class="card-title-rich">
+                  <div class="card-title-icon bg-amber">
+                    <font-awesome-icon icon="rotate"/>
+                  </div>
+                  <div>
+                    <strong>7.2 Validación de flujos</strong>
+                    <small>Check de continuidad entre stock, desembolsos y amortización</small>
+                  </div>
+                </div>
+              </template>
+              <template #content>
+                <ul class="rules-list">
+                  <li>Validar que <code>Stock(t) ≈ Stock(t-1) + Desembolso - Amortización</code>.</li>
+                  <li>Si la diferencia supera 20%, advertir que pueden existir ajustes contables no detallados.</li>
+                  <li>No atribuir automáticamente la diferencia a desempeño comercial sin evidencia.</li>
+                </ul>
+              </template>
+            </Card>
+
+            <Card class="elevated-card">
+              <template #title>
+                <div class="card-title-rich">
+                  <div class="card-title-icon bg-blue">
+                    <font-awesome-icon icon="folder-tree"/>
+                  </div>
+                  <div>
+                    <strong>7.3 Coincidencia de catálogos</strong>
+                    <small>Tratamiento de filtros vacíos y nombres ambiguos</small>
+                  </div>
+                </div>
+              </template>
+              <template #content>
+                <ul class="rules-list">
+                  <li>Si una consulta no retorna filas, revisar catálogo antes de concluir que no hay datos.</li>
+                  <li>Si un nombre existe como sucursal y agencia, aplicar sucursal por defecto e informarlo.</li>
+                  <li>Para productos homologados, usar las reglas de segmentación disponibles en el hub.</li>
+                </ul>
+              </template>
+            </Card>
+
+            <Card class="elevated-card">
+              <template #title>
+                <div class="card-title-rich">
+                  <div class="card-title-icon bg-green">
+                    <font-awesome-icon icon="calendar-check"/>
+                  </div>
+                  <div>
+                    <strong>7.4 Integridad de fecha</strong>
+                    <small>Uso obligatorio de cierres contables disponibles</small>
+                  </div>
+                </div>
+              </template>
+              <template #content>
+                <ul class="rules-list">
+                  <li>Cuando el usuario pida una fecha intermedia, responder con el cierre mensual más cercano disponible.</li>
+                  <li>Mostrar periodos en formato <code>yyyymm</code> para análisis ejecutivo.</li>
+                  <li>No inventar cortes futuros ni interpolar valores no presentes en la fuente.</li>
                 </ul>
               </template>
             </Card>
@@ -4954,9 +6475,18 @@ onMounted(async () => {
 
           <Card class="formula-card">
             <template #content>
-              <span>Relacion financiera referencial</span>
-              <strong>stock(t) ~= stock(t-1) + Desembolso(t) - amortizacion(t)</strong>
-              <p>La diferencia puede explicarse por ajustes contables, castigos, ventas o reclasificaciones.</p>
+              <span>Flujo de auto-corrección del agente</span>
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;">
+                <Tag severity="info" value="1. Recibir consulta"/>
+                <font-awesome-icon icon="arrow-right"/>
+                <Tag severity="danger" value="2. Validar saldos y flujos"/>
+                <font-awesome-icon icon="arrow-right"/>
+                <Tag severity="warning" value="3. Verificar catálogos"/>
+                <font-awesome-icon icon="arrow-right"/>
+                <Tag severity="info" value="4. Corregir fechas"/>
+                <font-awesome-icon icon="arrow-right"/>
+                <Tag severity="success" value="5. Entregar respuesta"/>
+              </div>
             </template>
           </Card>
         </section>
@@ -5036,7 +6566,701 @@ onMounted(async () => {
             </template>
           </Card>
         </section>
+        <!-- ═══ OPORTUNIDADES ═══════════════════════════════════════════════════════ -->
+        <section v-show="active === 'op-resumen'" class="page-grid">
+          <div class="section-header">
+            <div>
+              <span>Oportunidades comerciales</span>
+              <h3>Resumen integrado de oportunidades</h3>
+              <small>Maduración de créditos, LCF y cartera compartida</small>
+            </div>
+            <Tag severity="success" value="Oportunidades"/>
+          </div>
 
+          <div class="projection-summary-grid">
+            <Card class="projection-summary-card">
+              <template #content>
+                <div class="projection-summary-stack">
+                  <span class="projection-summary-label">Oportunidad total</span>
+                  <strong class="projection-summary-value">
+                    {{ moneyFull(oportunidadesTotals.oportunidadTotal) }}
+                  </strong>
+                  <small class="projection-summary-helper">LCF no utilizado + cartera otros bancos</small>
+                </div>
+              </template>
+            </Card>
+
+            <Card class="projection-summary-card">
+              <template #content>
+                <div class="projection-summary-stack">
+                  <span class="projection-summary-label">Cupo LCF no utilizado</span>
+                  <strong class="projection-summary-value">
+                    {{ moneyFull(lcfTotals.cupoNoUtilizado) }}
+                  </strong>
+                  <small class="projection-summary-helper">
+                    {{ percent(lcfTotals.cupoNoUtilizadoPct) }} del monto autorizado
+                  </small>
+                </div>
+              </template>
+            </Card>
+
+            <Card class="projection-summary-card">
+              <template #content>
+                <div class="projection-summary-stack">
+                  <span class="projection-summary-label">Cartera en otros bancos</span>
+                  <strong class="projection-summary-value">
+                    {{ moneyFull(sharedPortfolioTotals.otrosBancos) }}
+                  </strong>
+                  <small class="projection-summary-helper">
+                    {{ percent(sharedPortfolioTotals.participacionOtrosPct) }} del total compartido
+                  </small>
+                </div>
+              </template>
+            </Card>
+
+            <Card class="projection-summary-card">
+              <template #content>
+                <div class="projection-summary-stack">
+                  <span class="projection-summary-label">Maduración ponderada</span>
+                  <strong class="projection-summary-value">
+                    {{ percent(maduracionTotals.maduracionPonderadaPct) }}
+                  </strong>
+                  <small class="projection-summary-helper">Mayor % = mayor alerta · ponderada por stock vigente</small>
+                </div>
+              </template>
+            </Card>
+          </div>
+
+          <Card class="elevated-card">
+            <template #title>
+              <div class="card-title-rich">
+                <div class="card-title-icon bg-purple">
+                  <font-awesome-icon icon="chart-simple"/>
+                </div>
+                <div>
+                  <strong>Composición de oportunidad</strong>
+                  <small>Potencial accionable por fuente</small>
+                </div>
+              </div>
+            </template>
+
+            <template #content>
+              <div class="chart-box" style="height: 400px;">
+                <Chart
+                    type="bar"
+                    :data="oportunidadesResumenChart"
+                    :options="oportunidadesResumenOptions"
+                    style="width: 100%; height: 100%;"
+                />
+              </div>
+            </template>
+          </Card>
+
+          <Card class="elevated-card">
+            <template #title>
+              <div class="card-title-rich">
+                <div class="card-title-icon bg-amber">
+                  <font-awesome-icon icon="table-cells"/>
+                </div>
+                <div>
+                  <strong>Matriz de oportunidades por agencia</strong>
+                  <small>Combina maduración, LCF no utilizado y cartera compartida</small>
+                </div>
+              </div>
+            </template>
+
+            <template #content>
+              <DataTable
+                  :value="oportunidadesByAgencia"
+                  responsive-layout="scroll"
+                  showGridlines
+                  sortField="potencialTotal"
+                  :sortOrder="-1"
+                  paginator
+                  :rows="12"
+                  :rowsPerPageOptions="[12, 24, 50, 100]"
+              >
+                <Column field="nombreAgencia" header="Agencia"/>
+
+                <Column field="potencialTotal" header="Potencial total">
+                  <template #body="{ data }">
+                    <strong>{{ moneyFull(data.potencialTotal) }}</strong>
+                  </template>
+                </Column>
+
+                <Column field="cupoNoUtilizadoLcf" header="LCF no utilizado">
+                  <template #body="{ data }">
+                    {{ moneyFull(data.cupoNoUtilizadoLcf) }}
+                  </template>
+                </Column>
+
+                <Column field="carteraOtrosBancos" header="Otros bancos">
+                  <template #body="{ data }">
+                    {{ moneyFull(data.carteraOtrosBancos) }}
+                  </template>
+                </Column>
+
+                <Column field="maduracionPct" header="Maduración" sortable>
+                  <template #body="{ data }">
+                    <Tag
+                        :severity="maduracionAlertSeverity(data.maduracionPct)"
+                        :value="percent(data.maduracionPct)"
+                    />
+                  </template>
+                </Column>
+
+                <Column field="activacionLcfPct" header="Activación LCF">
+                  <template #body="{ data }">
+                    <Tag
+                        :severity="Number(data.activacionLcfPct || 0) >= 70 ? 'success' : Number(data.activacionLcfPct || 0) >= 40 ? 'warning' : 'danger'"
+                        :value="percent(data.activacionLcfPct)"
+                    />
+                  </template>
+                </Column>
+
+                <Column field="prioridad" header="Prioridad">
+                  <template #body="{ data }">
+                    <Tag
+                        :severity="data.prioridad === 'Alta' ? 'danger' : data.prioridad === 'Media' ? 'warning' : 'success'"
+                        :value="data.prioridad"
+                    />
+                  </template>
+                </Column>
+              </DataTable>
+            </template>
+          </Card>
+        </section>
+        <section v-show="active === 'op-maduracion'" class="page-grid">
+          <div class="section-header">
+            <div>
+              <span>Oportunidades · Maduración</span>
+              <h3>Maduración de cartera por producto</h3>
+              <small>Alertas de refinanciamiento · mayor maduración implica mayor prioridad</small>
+            </div>
+            <Tag severity="warning" value="Oportunidades"/>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:12px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:16px;padding:13px 18px;">
+            <div style="width:38px;height:38px;border-radius:12px;background:#FEF3C7;color:#92600A;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+              <font-awesome-icon icon="bolt"/>
+            </div>
+            <div>
+              <strong style="color:#92600A;font-size:13px;">Alerta de refinanciamiento activa</strong>
+              <span style="font-size:12.5px;color:#92600A;">
+                — Créditos con mayor porcentaje de maduración representan peor condición comercial y mayor prioridad para retención, refinanciamiento y ampliación de cartera.
+              </span>
+            </div>
+          </div>
+
+          <div class="projection-summary-grid projection-summary-grid-six">
+            <Card class="projection-summary-card">
+              <template #content>
+                <div class="projection-summary-stack">
+                  <span class="projection-summary-label">Stock vigente</span>
+                  <strong class="projection-summary-value">{{ moneyFull(maduracionTotals.stock) }}</strong>
+                  <small class="projection-summary-helper">Saldo actual expuesto a maduración</small>
+                </div>
+              </template>
+            </Card>
+
+            <Card class="projection-summary-card">
+              <template #content>
+                <div class="projection-summary-stack">
+                  <span class="projection-summary-label">Monto desembolsado original</span>
+                  <strong class="projection-summary-value">{{ moneyFull(maduracionTotals.montoDesembolso) }}</strong>
+                  <small class="projection-summary-helper">Monto al desembolso inicial</small>
+                </div>
+              </template>
+            </Card>
+
+            <Card class="projection-summary-card">
+              <template #content>
+                <div class="projection-summary-stack">
+                  <span class="projection-summary-label">Maduración ponderada</span>
+                  <strong class="projection-summary-value">{{ percent(maduracionTotals.maduracionPonderadaPct) }}</strong>
+                  <small class="projection-summary-helper">Ponderada por stock vigente</small>
+                </div>
+              </template>
+            </Card>
+
+            <Card class="projection-summary-card">
+              <template #content>
+                <div class="projection-summary-stack">
+                  <span class="projection-summary-label">Créditos críticos</span>
+                  <strong class="projection-summary-value">
+                    {{ maduracionBandRows.reduce((acc, row) => acc + Number((row.criticoCreditos ?? row.criticoRegistros) || 0), 0).toLocaleString('en-US') }}
+                  </strong>
+                  <small class="projection-summary-helper">Créditos si existe conteo; si no, registros &lt;60%</small>
+                </div>
+              </template>
+            </Card>
+
+            <Card class="projection-summary-card">
+              <template #content>
+                <div class="projection-summary-stack">
+                  <span class="projection-summary-label">Monto crítico</span>
+                  <strong class="projection-summary-value">
+                    {{ moneyFull(maduracionBandRows.reduce((acc, row) => acc + Number(row.criticoStock || 0), 0)) }}
+                  </strong>
+                  <small class="projection-summary-helper">Stock con maduración crítica</small>
+                </div>
+              </template>
+            </Card>
+
+            <Card class="projection-summary-card">
+              <template #content>
+                <div class="projection-summary-stack">
+                  <span class="projection-summary-label">Productos en alerta</span>
+                  <strong class="projection-summary-value">
+                    {{ maduracionSemaforoRows.filter((row) => Number(row.montoAlerta || 0) > 0).length }}
+                  </strong>
+                  <small class="projection-summary-helper">Con tramo alerta o crítico</small>
+                </div>
+              </template>
+            </Card>
+          </div>
+
+          <div class="capt-chart-grid capt-chart-grid-balanced">
+            <Card class="elevated-card">
+              <template #title>
+                <div class="card-title-rich">
+                  <div class="card-title-icon bg-green">
+                    <font-awesome-icon icon="chart-simple"/>
+                  </div>
+                  <div>
+                    <strong>Distribución de maduración por producto</strong>
+                    <small>% de créditos por tramo de maduración</small>
+                  </div>
+                </div>
+              </template>
+              <template #content>
+                <div class="chart-box capt-chart-box">
+                  <Chart
+                      type="bar"
+                      :data="maduracionBandChart"
+                      :options="maduracionBandChartOptions"
+                      style="width: 100%; height: 100%;"
+                  />
+                </div>
+              </template>
+            </Card>
+
+            <Card class="elevated-card">
+              <template #title>
+                <div class="card-title-rich">
+                  <div class="card-title-icon bg-amber">
+                    <font-awesome-icon icon="traffic-light"/>
+                  </div>
+                  <div>
+                    <strong>Semáforo de maduración</strong>
+                    <small>Monto en cartera por nivel de alerta y producto</small>
+                  </div>
+                </div>
+              </template>
+              <template #content>
+                <div style="display:flex;flex-direction:column;gap:10px;">
+                  <div
+                      v-for="row in maduracionSemaforoRows"
+                      :key="row.producto"
+                      style="border:1px solid rgba(15,31,22,.08);border-radius:14px;padding:12px;background:#fff;"
+                  >
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;">
+                      <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+                        <font-awesome-icon
+                            :icon="Number(row.criticoStock || 0) > 0 ? 'circle-exclamation' : Number(row.alertaStock || 0) > 0 ? 'triangle-exclamation' : 'circle-check'"
+                            :class="Number(row.criticoStock || 0) > 0 ? 'text-danger' : Number(row.alertaStock || 0) > 0 ? 'text-warning' : 'text-green'"
+                        />
+                        <strong style="font-size:13px;color:#26382d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ row.producto }}</strong>
+                      </div>
+                      <Tag
+                          :severity="Number(row.criticoStock || 0) > 0 ? 'danger' : Number(row.alertaStock || 0) > 0 ? 'warning' : 'success'"
+                          :value="Number(row.criticoStock || 0) > 0 ? 'Crítico' : Number(row.alertaStock || 0) > 0 ? 'Alerta' : 'Normal'"
+                      />
+                    </div>
+                    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:11px;">
+                      <div style="background:#FDEAEA;border-radius:10px;padding:8px;">
+                        <span style="color:#C0392B;font-weight:700;display:block;">Crítico >50%</span>
+                        <strong>{{ moneyFull(row.criticoStock) }}</strong>
+                      </div>
+                      <div style="background:#FEF3C7;border-radius:10px;padding:8px;">
+                        <span style="color:#92600A;font-weight:700;display:block;">Alerta 30–50%</span>
+                        <strong>{{ moneyFull(row.alertaStock) }}</strong>
+                      </div>
+                      <div style="background:#E8F7EE;border-radius:10px;padding:8px;">
+                        <span style="color:#1a8a49;font-weight:700;display:block;">Normal <30%</span>
+                        <strong>{{ moneyFull(row.normalStock) }}</strong>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </Card>
+          </div>
+
+          <div class="capt-chart-grid capt-chart-grid-balanced">
+            <Card class="elevated-card">
+              <template #title>
+                <div class="card-title-rich">
+                  <div class="card-title-icon bg-purple">
+                    <font-awesome-icon icon="chart-line"/>
+                  </div>
+                  <div>
+                    <strong>Maduración por producto</strong>
+                    <small>Stock, desembolso original y maduración ponderada</small>
+                  </div>
+                </div>
+              </template>
+              <template #content>
+                <div class="chart-box capt-chart-box">
+                  <Chart
+                      type="bar"
+                      :data="maduracionProductoChart"
+                      :options="opportunityMixedChartOptions"
+                      style="width: 100%; height: 100%;"
+                  />
+                </div>
+              </template>
+            </Card>
+
+            <Card class="elevated-card">
+              <template #title>
+                <div class="card-title-rich">
+                  <div class="card-title-icon bg-blue">
+                    <font-awesome-icon icon="building-columns"/>
+                  </div>
+                  <div>
+                    <strong>Maduración por agencia</strong>
+                    <small>Top agencias por stock vigente y maduración</small>
+                  </div>
+                </div>
+              </template>
+              <template #content>
+                <div class="chart-box capt-chart-box">
+                  <Chart
+                      type="bar"
+                      :data="maduracionAgenciaChart"
+                      :options="opportunityMixedChartOptions"
+                      style="width: 100%; height: 100%;"
+                  />
+                </div>
+              </template>
+            </Card>
+          </div>
+
+          <Card class="elevated-card">
+            <template #title>
+              <div class="card-title-rich">
+                <div class="card-title-icon bg-red">
+                  <font-awesome-icon icon="table-cells"/>
+                </div>
+                <div>
+                  <strong>Detalle por sucursal y producto</strong>
+                  <small>Semáforo de refinanciamiento por tramo de maduración</small>
+                </div>
+              </div>
+            </template>
+            <template #content>
+              <div style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+                <span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;background:#FDEAEA;color:#C0392B;padding:2px 9px;border-radius:4px;font-weight:600">Crítico >50%</span>
+                <span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;background:#FEF3C7;color:#92600A;padding:2px 9px;border-radius:4px;font-weight:600">Alerta 30–50%</span>
+                <span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;background:#E8F7EE;color:#1a8a49;padding:2px 9px;border-radius:4px;font-weight:600">Normal <30%</span>
+              </div>
+
+              <DataTable
+                  :value="maduracionSucursalProductoRows"
+                  responsive-layout="scroll"
+                  showGridlines
+                  paginator
+                  :rows="12"
+                  :rowsPerPageOptions="[12, 24, 50, 100]"
+                  v-model:sortField="maduracionSucursalProductoSortField"
+                  v-model:sortOrder="maduracionSucursalProductoSortOrder"
+              >
+                <Column field="sucursal" header="Sucursal" sortable/>
+                <Column field="producto" header="Producto" sortable/>
+                <Column field="maduracionPct" header="% Maduración prom." sortable>
+                  <template #body="{ data }">
+                    <Tag
+                        :severity="maduracionAlertSeverity(data.maduracionPct)"
+                        :value="percent(data.maduracionPct)"
+                    />
+                  </template>
+                </Column>
+                <Column field="stock" header="Monto USD" sortable>
+                  <template #body="{ data }">
+                    <strong>{{ moneyFull(data.stock) }}</strong>
+                  </template>
+                </Column>
+                <Column field="alerta" header="Alerta" sortable>
+                  <template #body="{ data }">
+                    <Tag
+                        :severity="maduracionAlertSeverity(data.maduracionPct)"
+                        :value="data.alerta"
+                    />
+                  </template>
+                </Column>
+              </DataTable>
+            </template>
+          </Card>
+
+          <Card class="elevated-card">
+            <template #title>Detalle por agencia</template>
+            <template #content>
+              <DataTable
+                  :value="maduracionDetalleAgenciaRows"
+                  responsive-layout="scroll"
+                  showGridlines
+                  paginator
+                  :rows="12"
+                  :rowsPerPageOptions="[12, 24, 50, 100]"
+                  v-model:sortField="maduracionDetalleSortField"
+                  v-model:sortOrder="maduracionDetalleSortOrder"
+              >
+                <Column field="nombreAgencia" header="Agencia" sortable/>
+                <Column field="producto" header="Producto" sortable>
+                  <template #body="{ data }">
+                    {{ data.producto }}
+                  </template>
+                </Column>
+
+                <Column field="stock" header="Stock" sortable>
+                  <template #body="{ data }">
+                    <strong>{{ moneyFull(data.stock) }}</strong>
+                  </template>
+                </Column>
+
+                <Column field="montoDesembolso" header="Monto desembolso" sortable>
+                  <template #body="{ data }">
+                    {{ moneyFull(data.montoDesembolso) }}
+                  </template>
+                </Column>
+
+                <Column field="maduracionPct" header="Maduración" sortable>
+                  <template #body="{ data }">
+                    <Tag
+                        :severity="maduracionAlertSeverity(data.maduracionPct)"
+                        :value="percent(data.maduracionPct)"
+                    />
+                  </template>
+                </Column>
+
+                <Column field="saldoSobreDesembolsoPct" header="Saldo / desembolso" sortable>
+                  <template #body="{ data }">
+                    {{ percent(data.saldoSobreDesembolsoPct) }}
+                  </template>
+                </Column>
+                <Column field="alerta" header="Alerta" sortable>
+                  <template #body="{ data }">
+                    <Tag
+                        :severity="maduracionAlertSeverity(data.maduracionPct)"
+                        :value="data.alerta"
+                    />
+                  </template>
+                </Column>
+              </DataTable>
+            </template>
+          </Card>
+        </section>
+        <section v-show="active === 'op-lcf'" class="page-grid">
+          <div class="section-header">
+            <div>
+              <span>Oportunidades · LCF</span>
+              <h3>Líneas de crédito familiar</h3>
+              <small>Monto autorizado vs saldo activado</small>
+            </div>
+            <Tag severity="info" value="Hub_LCF"/>
+          </div>
+
+          <div class="projection-summary-grid">
+            <Card class="projection-summary-card">
+              <template #content>
+                <div class="projection-summary-stack">
+                  <span class="projection-summary-label">Monto autorizado</span>
+                  <strong class="projection-summary-value">{{ moneyFull(lcfTotals.montoAutorizado) }}</strong>
+                  <small class="projection-summary-helper">Monto desembolsado/aprobado</small>
+                </div>
+              </template>
+            </Card>
+
+            <Card class="projection-summary-card">
+              <template #content>
+                <div class="projection-summary-stack">
+                  <span class="projection-summary-label">Saldo activado</span>
+                  <strong class="projection-summary-value">{{ moneyFull(lcfTotals.saldoActivado) }}</strong>
+                  <small class="projection-summary-helper">{{ percent(lcfTotals.activacionPct) }} de activación</small>
+                </div>
+              </template>
+            </Card>
+
+            <Card class="projection-summary-card">
+              <template #content>
+                <div class="projection-summary-stack">
+                  <span class="projection-summary-label">Cupo no utilizado</span>
+                  <strong class="projection-summary-value">{{ moneyFull(lcfTotals.cupoNoUtilizado) }}</strong>
+                  <small class="projection-summary-helper">{{ percent(lcfTotals.cupoNoUtilizadoPct) }} pendiente de activar</small>
+                </div>
+              </template>
+            </Card>
+          </div>
+
+          <div class="capt-chart-grid capt-chart-grid-balanced">
+            <Card class="elevated-card">
+              <template #title>
+                <div class="card-title-rich">
+                  <div class="card-title-icon bg-green">
+                    <font-awesome-icon icon="chart-simple"/>
+                  </div>
+                  <div>
+                    <strong>LCF por producto</strong>
+                    <small>Cupo no utilizado, saldo activado y activación</small>
+                  </div>
+                </div>
+              </template>
+              <template #content>
+                <div class="chart-box capt-chart-box">
+                  <Chart
+                      type="bar"
+                      :data="lcfProductoChart"
+                      :options="opportunityMixedChartOptions"
+                      style="width: 100%; height: 100%;"
+                  />
+                </div>
+              </template>
+            </Card>
+
+            <Card class="elevated-card">
+              <template #title>
+                <div class="card-title-rich">
+                  <div class="card-title-icon bg-blue">
+                    <font-awesome-icon icon="building-columns"/>
+                  </div>
+                  <div>
+                    <strong>LCF por agencia</strong>
+                    <small>Top agencias por cupo no utilizado y activación</small>
+                  </div>
+                </div>
+              </template>
+              <template #content>
+                <div class="chart-box capt-chart-box">
+                  <Chart
+                      type="bar"
+                      :data="lcfAgenciaChart"
+                      :options="opportunityMixedChartOptions"
+                      style="width: 100%; height: 100%;"
+                  />
+                </div>
+              </template>
+            </Card>
+          </div>
+
+          <Card class="elevated-card">
+            <template #title>Resumen por producto</template>
+            <template #content>
+              <DataTable
+                  :value="lcfByProduct"
+                  responsive-layout="scroll"
+                  showGridlines
+                  sortField="cupoNoUtilizado"
+                  :sortOrder="-1"
+              >
+                <Column field="producto" header="Producto">
+                  <template #body="{ data }">
+                    <strong>{{ data.producto }}</strong>
+                  </template>
+                </Column>
+
+                <Column field="agenciasCount" header="Agencias">
+                  <template #body="{ data }">
+                    {{ Number(data.agenciasCount || 0).toLocaleString('en-US') }}
+                  </template>
+                </Column>
+
+                <Column field="montoAutorizado" header="Monto autorizado">
+                  <template #body="{ data }">
+                    <strong>{{ moneyFull(data.montoAutorizado) }}</strong>
+                  </template>
+                </Column>
+
+                <Column field="saldoActivado" header="Saldo activado">
+                  <template #body="{ data }">
+                    {{ moneyFull(data.saldoActivado) }}
+                  </template>
+                </Column>
+
+                <Column field="cupoNoUtilizado" header="Cupo no utilizado">
+                  <template #body="{ data }">
+                    <strong class="text-green">{{ moneyFull(data.cupoNoUtilizado) }}</strong>
+                  </template>
+                </Column>
+
+                <Column field="activacionPct" header="% activación">
+                  <template #body="{ data }">
+                    <Tag
+                        :severity="Number(data.activacionPct || 0) >= 70 ? 'success' : Number(data.activacionPct || 0) >= 40 ? 'warning' : 'danger'"
+                        :value="percent(data.activacionPct)"
+                    />
+                  </template>
+                </Column>
+
+                <Column field="cupoNoUtilizadoPct" header="% no utilizado">
+                  <template #body="{ data }">
+                    {{ percent(data.cupoNoUtilizadoPct) }}
+                  </template>
+                </Column>
+              </DataTable>
+            </template>
+          </Card>
+
+          <Card class="elevated-card">
+            <template #title>Detalle LCF por agencia</template>
+            <template #content>
+              <DataTable
+                  :value="lcfDetalleRows"
+                  responsive-layout="scroll"
+                  showGridlines
+                  paginator
+                  :rows="12"
+                  :rowsPerPageOptions="[12, 24, 50, 100]"
+                  sortField="cupoNoUtilizado"
+                  :sortOrder="-1"
+              >
+                <Column field="nombreAgencia" header="Agencia"/>
+                <Column header="Producto">
+                  <template #body="{ data }">
+                    {{ opportunityProduct(data) }}
+                  </template>
+                </Column>
+
+                <Column field="montoAutorizado" header="Monto autorizado">
+                  <template #body="{ data }">
+                    <strong>{{ moneyFull(data.montoAutorizado) }}</strong>
+                  </template>
+                </Column>
+
+                <Column field="saldoActivado" header="Saldo activado">
+                  <template #body="{ data }">
+                    {{ moneyFull(data.saldoActivado) }}
+                  </template>
+                </Column>
+
+                <Column field="cupoNoUtilizado" header="Cupo no utilizado">
+                  <template #body="{ data }">
+                    <strong class="text-green">{{ moneyFull(data.cupoNoUtilizado) }}</strong>
+                  </template>
+                </Column>
+
+                <Column field="activacionPct" header="% activación">
+                  <template #body="{ data }">
+                    <Tag
+                        :severity="Number(data.activacionPct || 0) >= 70 ? 'success' : Number(data.activacionPct || 0) >= 40 ? 'warning' : 'danger'"
+                        :value="percent(data.activacionPct)"
+                    />
+                  </template>
+                </Column>
+              </DataTable>
+            </template>
+          </Card>
+        </section>
         <!-- ═══ KPIs ══════════════════════════════════════════════════════════ -->
         <section v-show="active === 'desempeno'" class="page-grid">
           <div class="section-header">
@@ -5814,16 +8038,6 @@ onMounted(async () => {
                 </table>
               </template>
             </Card>
-
-            <Card class="mt-4" style="grid-column: 1 / -1;">
-              <template #title>Oportunidad de mercado (Stock vs crecimiento total)</template>
-              <template #content>
-                <div class="chart-box">
-                  <Chart type="bubble" :data="scatterChart" :options="scatterOptions"
-                         style="width: 100%; height: 400px;"/>
-                </div>
-              </template>
-            </Card>
           </div>
           <div class="section-header">
             <div>
@@ -6065,13 +8279,19 @@ onMounted(async () => {
               </div>
               <div class="prompt-row">
                 <Button label="Análisis integral" severity="info" outlined @click="triggerAnalysis()"/>
+                <Button label="Plan comercial" outlined @click="triggerPlanComercialAnalysis()"/>
                 <Button label="Explica la brecha" outlined @click="triggerBrechaAnalysis()"/>
                 <Button label="BNB vs competencia" outlined @click="triggerCompetenciaAnalysis()"/>
                 <Button label="Ranking oficiales" outlined @click="triggerOficialesAnalysis()"/>
+                <Button label="Captaciones" outlined @click="triggerCaptacionesAnalysis()"/>
+                <Button label="Fuga captaciones" outlined @click="triggerCaptacionesAnalysis()"/>
+                <Button label="Oportunidades" outlined @click="triggerOportunidadesAnalysis()"/>
+                <Button label="Maduración" outlined @click="triggerMaduracionAnalysis()"/>
+                <Button label="LCF" outlined @click="triggerLcfAnalysis()"/>
+                <Button label="Cartera compartida" outlined @click="triggerCarteraCompartidaAnalysis()"/>
                 <Button label="Proyección financiera" outlined @click="triggerProjectionAnalysis()"/>
                 <Button label="Probabilidad de mora" outlined @click="triggerPdRiskAnalysis()"/>
                 <Button label="Riesgos comerciales" outlined @click="triggerRiesgoAnalysis()"/>
-                <Button label="Plan comercial" outlined @click="triggerPlanComercialAnalysis()"/>
               </div>
 
               <!-- Toggle de MCP visual -->
@@ -6331,7 +8551,7 @@ onMounted(async () => {
                 <Column field="categoriaTendencia" header="Tendencia">
                   <template #body="{ data }">
                     <Tag
-                        :severity="String(data.categoriaTendencia || '').toLowerCase().includes('neg') ? 'danger' : 'success'"
+                        :severity="captacionCategorySeverity(data.categoriaTendencia)"
                         :value="data.categoriaTendencia || 'N/D'"
                     />
                   </template>
@@ -6358,7 +8578,7 @@ onMounted(async () => {
                   </div>
                   <div>
                     <strong>Detalle de tendencia por agencia</strong>
-                    <small>Captación total, brecha, tendencia y categoría por agencia</small>
+                    <small>Captación total, brecha y categoría por agencia</small>
                   </div>
                 </div>
               </template>
@@ -6368,7 +8588,7 @@ onMounted(async () => {
                     :value="captacionesByAgencia"
                     responsive-layout="scroll"
                     showGridlines
-                    sortField="tendenciaCaptaciones"
+                    sortField="categoriaTendencia"
                     :sortOrder="-1"
                     paginator
                     :rows="12"
@@ -6399,18 +8619,10 @@ onMounted(async () => {
                     </template>
                   </Column>
 
-                  <Column field="tendenciaCaptaciones" header="Tendencia monto">
-                    <template #body="{ data }">
-                      <strong :class="trendClass(data.tendenciaCaptaciones)">
-                        {{ signedMoneyFull(data.tendenciaCaptaciones) }}
-                      </strong>
-                    </template>
-                  </Column>
-
                   <Column field="categoriaTendencia" header="Categoría">
                     <template #body="{ data }">
                       <Tag
-                          :severity="String(data.categoriaTendencia || '').toLowerCase().includes('neg') ? 'danger' : 'success'"
+                          :severity="captacionCategorySeverity(data.categoriaTendencia)"
                           :value="data.categoriaTendencia || 'N/D'"
                       />
                     </template>
@@ -6426,7 +8638,7 @@ onMounted(async () => {
             <div>
               <span>Captaciones · Fuga</span>
               <h3>Alertas de fuga de captaciones</h3>
-              <small>Corte {{ captacionesPeriod }} · Señal basada en tendencia negativa</small>
+              <small>Corte {{ captacionesPeriod }} · Señal basada en categoría de captaciones</small>
             </div>
             <Tag severity="danger" value="Riesgo"/>
           </div>
@@ -6435,11 +8647,11 @@ onMounted(async () => {
             <Card class="projection-summary-card">
               <template #content>
                 <div class="projection-summary-stack">
-                  <span class="projection-summary-label">Monto en riesgo</span>
+                  <span class="projection-summary-label">Saldo en alerta</span>
                   <strong class="projection-summary-value text-danger">
                     {{ moneyFull(captacionesFugaTotals.montoRiesgo) }}
                   </strong>
-                  <small class="projection-summary-helper">Tendencia negativa acumulada</small>
+                  <small class="projection-summary-helper">Agencias clasificadas con categoría de alerta</small>
                 </div>
               </template>
             </Card>
@@ -6451,7 +8663,7 @@ onMounted(async () => {
                   <strong class="projection-summary-value">
                     {{ Number(captacionesFugaTotals.totalAgencias || 0).toLocaleString('en-US') }}
                   </strong>
-                  <small class="projection-summary-helper">Agencias con caída de captaciones</small>
+                  <small class="projection-summary-helper">Agencias con categoría de alerta</small>
                 </div>
               </template>
             </Card>
@@ -6502,7 +8714,7 @@ onMounted(async () => {
                   </div>
                   <div>
                     <strong>Top agencias con riesgo de fuga</strong>
-                    <small>Priorizado por monto de tendencia negativa</small>
+                    <small>Priorizado por nivel de categoría y saldo observado</small>
                   </div>
                 </div>
               </template>
@@ -6527,15 +8739,7 @@ onMounted(async () => {
                     </template>
                   </Column>
 
-                  <Column field="tendenciaCaptaciones" header="Tendencia">
-                    <template #body="{ data }">
-                      <strong class="text-danger">
-                        {{ signedMoneyFull(data.tendenciaCaptaciones) }}
-                      </strong>
-                    </template>
-                  </Column>
-
-                  <Column field="montoRiesgo" header="Monto en riesgo">
+                  <Column field="montoRiesgo" header="Saldo en alerta">
                     <template #body="{ data }">
                       <strong class="text-danger">{{ moneyFull(data.montoRiesgo) }}</strong>
                     </template>
@@ -6553,7 +8757,7 @@ onMounted(async () => {
                   <Column field="categoriaTendencia" header="Categoría tendencia">
                     <template #body="{ data }">
                       <Tag
-                          :severity="String(data.categoriaTendencia || '').toLowerCase().includes('neg') ? 'danger' : 'warning'"
+                          :severity="captacionCategorySeverity(data.categoriaTendencia)"
                           :value="data.categoriaTendencia || 'N/D'"
                       />
                     </template>

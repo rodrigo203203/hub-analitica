@@ -3648,3 +3648,8 @@ tfoot .sticky-col {
         padding: 10px;
     }
 }
+.capt-historico-chart {
+    height: 400px !important;
+    min-height: 400px;
+    max-height: 400px;
+}
