@@ -36,8 +36,14 @@ function createHubLogic() {
     projection, projectionProductData, benchmark, marketShare, sharedPortfolio,
     oficiales, fuentes, pdRisk, pdRiskHistory, captaciones, captacionesHistorico,
     maduracion, lcf, desembolsoScenario, amortizacionScenario,
-    draftDesembolsoScenario, draftAmortizacionScenario, selectedProjProducts, scenarios
+    draftDesembolsoScenario, draftAmortizacionScenario, selectedProjProducts
   } = storeToRefs(dataStore);
+
+  const scenarios = [
+    { label: 'Base', value: 'base' },
+    { label: 'Optimista', value: 'optimista' },
+    { label: 'Conservador', value: 'conservador' }
+  ];
 
   const { filtersApplied, filtersDraft, catalogs } = storeToRefs(filtersStore);
 
@@ -4379,7 +4385,8 @@ const oportunidadesResumenOptions = {
     projection, projectionProductData, benchmark, marketShare, sharedPortfolio,
     oficiales, fuentes, pdRisk, pdRiskHistory, captaciones, captacionesHistorico,
     maduracion, lcf, desembolsoScenario, amortizacionScenario,
-    draftDesembolsoScenario, draftAmortizacionScenario, selectedProjProducts, scenarios,
+    draftDesembolsoScenario, draftAmortizacionScenario, selectedProjProducts,
+    scenarios,
     filtersApplied, filtersDraft, catalogs,
     dateIso, moneyFull, percent,
     safeNumber, fmtMoneyPrompt, fmtPctPrompt, toPeriodYYYYMM,
