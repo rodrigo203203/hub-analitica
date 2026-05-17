@@ -14,8 +14,8 @@ export const useAppStore = defineStore('app', () => {
     const menuOpen = ref(false);
     const sidebarCollapsed = ref(false);
 
-    // ─── Estructura del menú ──────────────────────────────────────────────────
-    const sections = [
+    // ─── Estructura del menú (ref para compatibilidad con storeToRefs) ─────────
+    const sections = ref([
         { id: 'portada', label: 'Portada', icon: 'house', path: '/' },
         { id: 'gobernanza', label: 'Gobernanza', icon: 'shield-halved', path: '/gobernanza' },
         { id: 'organigrama', label: 'Organigrama', icon: 'sitemap', path: '/organigrama' },
@@ -55,11 +55,11 @@ export const useAppStore = defineStore('app', () => {
         },
         { id: 'agente', label: 'Agente IA', icon: 'robot', path: '/agente' },
         { id: 'actualizaciones', label: 'Actualizaciones', icon: 'rotate', path: '/actualizaciones' }
-    ];
+    ]);
 
     // ─── Título activo ────────────────────────────────────────────────────────
     function activeTitleFor(routeName) {
-        for (const s of sections) {
+        for (const s of sections.value) {
             if (s.id === routeName) return s.label;
             if (s.children) {
                 const child = s.children.find(c => c.id === routeName);

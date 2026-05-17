@@ -21,7 +21,7 @@ const appStore = useAppStore();
 const dataStore = useDataStore();
 const filtersStore = useFiltersStore();
 
-const { hasEntered, menuOpen, sidebarCollapsed, sections } = storeToRefs(appStore);
+const { hasEntered, menuOpen, sidebarCollapsed } = storeToRefs(appStore);
 const { loading, dataMode } = storeToRefs(dataStore);
 const { filtersDraft, catalogs } = storeToRefs(filtersStore);
 
@@ -63,7 +63,7 @@ function onNavigate(sectionId) {
         }
         return null;
     };
-    const path = findPath(sections.value);
+    const path = findPath(appStore.sections);
     if (path) {
         router.push(path);
         appStore.closeMobileMenu();
@@ -95,8 +95,8 @@ onMounted(() => reloadData());
 
     <div v-else class="app-shell" :class="{ 'sidebar-collapsed': sidebarCollapsed, 'menu-open': menuOpen }">
         <AppSidebar
-            :sections="sections"
-            :active="route.name"
+            :sections="appStore.sections"
+            :active="route.name || 'portada'"
             :data-mode="dataMode"
             @navigate="onNavigate"
         />
