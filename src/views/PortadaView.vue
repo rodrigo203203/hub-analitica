@@ -43,16 +43,16 @@ const hub = useHubLogic();
           </div>
 
           <div class="summary-kpi-grid">
-            <Card v-for="item in portadaKpiCards" :key="item.label" class="summary-kpi-card">
+            <Card v-for="item in hub.portadaKpiCards" :key="item.label" class="summary-kpi-card">
               <template #content>
                 <div class="summary-kpi-top">
-                  <span>{{ hub.item.label }}</span>
+                  <span>{{ item.label }}</span>
                   <div class="summary-kpi-icon">
                     <font-awesome-icon :icon="item.icon"/>
                   </div>
                 </div>
-                <strong>{{ hub.item.value }}</strong>
-                <small>{{ hub.item.helper }}</small>
+                <strong>{{ item.value }}</strong>
+                <small>{{ item.helper }}</small>
               </template>
             </Card>
           </div>
@@ -67,20 +67,20 @@ const hub = useHubLogic();
 
           <div class="summary-kpi-grid">
             <Card
-                v-for="item in portadaIntegratedSummaryCards"
+                v-for="item in hub.portadaIntegratedSummaryCards"
                 :key="item.label"
                 class="summary-kpi-card"
                 :class="`summary-tone-${item.tone}`"
             >
               <template #content>
                 <div class="summary-kpi-top">
-                  <span>{{ hub.item.label }}</span>
+                  <span>{{ item.label }}</span>
                   <div class="summary-kpi-icon">
                     <font-awesome-icon :icon="item.icon"/>
                   </div>
                 </div>
-                <strong>{{ hub.item.value }}</strong>
-                <small>{{ hub.item.helper }}</small>
+                <strong>{{ item.value }}</strong>
+                <small>{{ item.helper }}</small>
               </template>
             </Card>
           </div>
@@ -101,7 +101,7 @@ const hub = useHubLogic();
               <template #content>
                 <div class="growth-leaders-grid growth-leaders-wide">
                   <div
-                      v-for="alert in portadaExecutiveAlerts"
+                      v-for="alert in hub.portadaExecutiveAlerts"
                       :key="alert.title"
                       class="growth-leader-card"
                   >
@@ -111,12 +111,12 @@ const hub = useHubLogic();
                       </div>
                       <Tag
                           :severity="alert.tone === 'danger' ? 'danger' : alert.tone === 'warning' ? 'warning' : alert.tone === 'success' ? 'success' : 'info'"
-                          :value="hub.alert.tone === 'danger' ? 'Alerta' : alert.tone === 'warning' ? 'Seguimiento' : 'Oportunidad'"
+                          :value="alert.tone === 'danger' ? 'Alerta' : alert.tone === 'warning' ? 'Seguimiento' : 'Oportunidad'"
                       />
                     </div>
                     <div class="growth-leader-body">
-                      <strong>{{ hub.alert.title }}</strong>
-                      <span class="growth-bank">{{ hub.alert.detail }}</span>
+                      <strong>{{ alert.title }}</strong>
+                      <span class="growth-bank">{{ alert.detail }}</span>
                     </div>
                   </div>
                 </div>
@@ -233,7 +233,7 @@ const hub = useHubLogic();
               <template #content>
                 <div class="growth-leaders-grid growth-leaders-wide">
                   <div
-                      v-for="(item, index) in portadaGrowthLeaders"
+                      v-for="(item, index) in hub.portadaGrowthLeaders"
                       :key="`${item.producto}-${item.banco}`"
                       class="growth-leader-card"
                   >
@@ -244,59 +244,59 @@ const hub = useHubLogic();
                       </div>
 
                       <div class="growth-head-tags">
-                        <Tag severity="info" :value="hub.item.banco"/>
+                        <Tag severity="info" :value="item.banco"/>
                       </div>
                     </div>
 
                     <div class="growth-leader-body">
-                      <strong>{{ hub.item.producto }}</strong>
+                      <strong>{{ item.producto }}</strong>
                       <span class="growth-bank">
-      Líder: {{ hub.item.banco }}
+      Líder: {{ item.banco }}
     </span>
                     </div>
 
                     <div class="growth-leader-metrics">
                       <div>
                         <small>Crecimiento líder</small>
-                        <strong :class="trendClass(item.crecimientoTotal)">
+                        <strong :class="hub.trendClass(item.crecimientoTotal)">
                           {{ hub.signedMoneyK(item.crecimientoTotal) }}
                         </strong>
                       </div>
 
                       <div>
                         <small>Crecimiento % líder</small>
-                        <strong :class="trendClass(item.crecimientoPct)">
-                          {{ hub.item.crecimientoPct > 0 ? '+' : '' }}{{ hub.percent(item.crecimientoPct) }}
+                        <strong :class="hub.trendClass(item.crecimientoPct)">
+                          {{ item.crecimientoPct > 0 ? '+' : '' }}{{ hub.percent(item.crecimientoPct) }}
                         </strong>
                       </div>
 
                       <div>
                         <small>Posición BNB</small>
                         <strong>
-                          {{ hub.item.bnbPosicion ? `#${item.bnbPosicion} de ${item.totalBancos}` : 'N/D' }}
+                          {{ item.bnbPosicion ? `#${item.bnbPosicion} de ${item.totalBancos}` : 'N/D' }}
                         </strong>
                       </div>
 
                       <div>
                         <small>Crecimiento BNB</small>
-                        <strong :class="trendClass(item.bnbCrecimientoTotal)">
-                          {{ hub.item.bnbCrecimientoTotal === null ? 'N/D' : signedMoneyK(item.bnbCrecimientoTotal) }}
+                        <strong :class="hub.trendClass(item.bnbCrecimientoTotal)">
+                          {{ item.bnbCrecimientoTotal === null ? 'N/D' : hub.signedMoneyK(item.bnbCrecimientoTotal) }}
                         </strong>
                       </div>
 
                       <div>
                         <small>Crecimiento % BNB</small>
-                        <strong :class="trendClass(item.bnbCrecimientoPct)">
-                          {{ hub.item.bnbCrecimientoPct === null || item.bnbCrecimientoPct === undefined
+                        <strong :class="hub.trendClass(item.bnbCrecimientoPct)">
+                          {{ item.bnbCrecimientoPct === null || item.bnbCrecimientoPct === undefined
                                 ? 'N/D'
-                                : `${item.bnbCrecimientoPct > 0 ? '+' : ''}${percent(item.bnbCrecimientoPct)}`
+                                : `${item.bnbCrecimientoPct > 0 ? '+' : ''}${hub.percent(item.bnbCrecimientoPct)}`
                           }}
                         </strong>
                       </div>
 
                       <div>
                         <small>Crecimiento total sistema</small>
-                        <strong :class="trendClass(item.crecimientoSistemaTotal)">
+                        <strong :class="hub.trendClass(item.crecimientoSistemaTotal)">
                           {{ hub.signedMoneyK(item.crecimientoSistemaTotal) }}
                         </strong>
                       </div>

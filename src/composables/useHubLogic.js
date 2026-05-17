@@ -1,7 +1,7 @@
 /**
  * useHubLogic.js — Lógica de negocio del Hub (extraída de App.vue).
  */
-import { computed, ref } from 'vue';
+import { computed, ref, reactive } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useDataStore } from '../stores/useDataStore.js';
 import { useFiltersStore } from '../stores/useFiltersStore.js';
@@ -4365,7 +4365,7 @@ const oportunidadesResumenOptions = {
     }
   }
 };
-  return {
+  return reactive({
     dataStore, filtersStore,
     loading, dataMode, summary, kpisProductData, filteredTimeSeries,
     projection, projectionProductData, benchmark, marketShare, sharedPortfolio,
@@ -4515,5 +4515,5 @@ const oportunidadesResumenOptions = {
     toPeriodYYYYMM,
     tooltipBase,
     valueByTipoAndDate
-  };
+  });
 }

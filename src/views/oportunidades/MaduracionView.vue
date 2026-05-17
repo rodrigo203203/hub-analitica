@@ -144,7 +144,7 @@ const hub = useHubLogic();
               <template #content>
                 <div style="display:flex;flex-direction:column;gap:10px;">
                   <div
-                      v-for="row in maduracionSemaforoRows"
+                      v-for="row in hub.maduracionSemaforoRows"
                       :key="row.producto"
                       style="border:1px solid rgba(15,31,22,.08);border-radius:14px;padding:12px;background:#fff;"
                   >
@@ -154,7 +154,7 @@ const hub = useHubLogic();
                             :icon="Number(row.criticoStock || 0) > 0 ? 'circle-exclamation' : Number(row.alertaStock || 0) > 0 ? 'triangle-exclamation' : 'circle-check'"
                             :class="Number(row.criticoStock || 0) > 0 ? 'text-danger' : Number(row.alertaStock || 0) > 0 ? 'text-warning' : 'text-green'"
                         />
-                        <strong style="font-size:13px;color:#26382d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ hub.row.producto }}</strong>
+                        <strong style="font-size:13px;color:#26382d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ row.producto }}</strong>
                       </div>
                       <Tag
                           :severity="Number(row.criticoStock || 0) > 0 ? 'danger' : Number(row.alertaStock || 0) > 0 ? 'warning' : 'success'"
@@ -265,7 +265,7 @@ const hub = useHubLogic();
                 <Column field="maduracionPct" header="% Maduración prom." sortable>
                   <template #body="{ data }">
                     <Tag
-                        :severity="maduracionAlertSeverity(data.maduracionPct)"
+                        :severity="hub.maduracionAlertSeverity(data.maduracionPct)"
                         :value="hub.percent(data.maduracionPct)"
                     />
                   </template>
@@ -278,8 +278,8 @@ const hub = useHubLogic();
                 <Column field="alerta" header="Alerta" sortable>
                   <template #body="{ data }">
                     <Tag
-                        :severity="maduracionAlertSeverity(data.maduracionPct)"
-                        :value="hub.data.alerta"
+                        :severity="hub.maduracionAlertSeverity(data.maduracionPct)"
+                        :value="data.alerta"
                     />
                   </template>
                 </Column>
@@ -303,7 +303,7 @@ const hub = useHubLogic();
                 <Column field="nombreAgencia" header="Agencia" sortable/>
                 <Column field="producto" header="Producto" sortable>
                   <template #body="{ data }">
-                    {{ hub.data.producto }}
+                    {{ data.producto }}
                   </template>
                 </Column>
 
@@ -322,7 +322,7 @@ const hub = useHubLogic();
                 <Column field="maduracionPct" header="Maduración" sortable>
                   <template #body="{ data }">
                     <Tag
-                        :severity="maduracionAlertSeverity(data.maduracionPct)"
+                        :severity="hub.maduracionAlertSeverity(data.maduracionPct)"
                         :value="hub.percent(data.maduracionPct)"
                     />
                   </template>
@@ -336,8 +336,8 @@ const hub = useHubLogic();
                 <Column field="alerta" header="Alerta" sortable>
                   <template #body="{ data }">
                     <Tag
-                        :severity="maduracionAlertSeverity(data.maduracionPct)"
-                        :value="hub.data.alerta"
+                        :severity="hub.maduracionAlertSeverity(data.maduracionPct)"
+                        :value="data.alerta"
                     />
                   </template>
                 </Column>

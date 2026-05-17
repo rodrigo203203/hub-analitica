@@ -130,7 +130,7 @@ const hub = useHubLogic();
                     <template #body="{ data }">
                       <Tag
                           :severity="data.nivelFuga === 'Alta' ? 'danger' : data.nivelFuga === 'Media' ? 'warning' : 'success'"
-                          :value="hub.data.nivelFuga"
+                          :value="data.nivelFuga"
                       />
                     </template>
                   </Column>
@@ -138,8 +138,8 @@ const hub = useHubLogic();
                   <Column field="categoriaTendencia" header="Categoría tendencia">
                     <template #body="{ data }">
                       <Tag
-                          :severity="captacionCategorySeverity(data.categoriaTendencia)"
-                          :value="hub.data.categoriaTendencia || 'N/D'"
+                          :severity="hub.captacionCategorySeverity(data.categoriaTendencia)"
+                          :value="data.categoriaTendencia || 'N/D'"
                       />
                     </template>
                   </Column>

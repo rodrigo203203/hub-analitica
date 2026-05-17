@@ -118,7 +118,7 @@ const hub = useHubLogic();
               >
                 <Column field="producto" header="Producto">
                   <template #body="{ data }">
-                    <strong>{{ hub.data.producto }}</strong>
+                    <strong>{{ data.producto }}</strong>
                   </template>
                 </Column>
 

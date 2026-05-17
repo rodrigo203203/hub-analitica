@@ -49,7 +49,7 @@ const hub = useHubLogic();
 
                       <div>
                         <span>Crecimiento a diciembre</span>
-                        <strong :class="trendClass(summary?.crecimientoNominal)">
+                        <strong :class="hub.trendClass(summary?.crecimientoNominal)">
                           {{ hub.signedMoneyFull(summary?.crecimientoNominal) }}
                         </strong>
                         <small>
@@ -145,7 +145,7 @@ const hub = useHubLogic();
                 </div>
                 <div>
                   <span>Crecimiento nominal</span>
-                  <strong :class="trendClass(summary?.crecimientoNominal)">
+                  <strong :class="hub.trendClass(summary?.crecimientoNominal)">
                     {{ hub.signedMoneyFull(summary?.crecimientoNominal) }}
                   </strong>
                   <small>Variación contra base Dic-25</small>
@@ -166,7 +166,7 @@ const hub = useHubLogic();
               >
                 <Column field="producto" header="Producto" footer="">
                   <template #body="{ data }">
-                    <strong>{{ hub.data.producto }}</strong>
+                    <strong>{{ data.producto }}</strong>
                   </template>
                   <template #footer>
                     <strong>Totales</strong>
@@ -184,12 +184,12 @@ const hub = useHubLogic();
 
                 <Column field="crecimientoPct" header="%Crec. vs Dic">
                   <template #body="{ data }">
-      <span :class="trendClass(data.crecimientoPct)">
-        {{ hub.data.crecimientoPct > 0 ? '+' : '' }}{{ hub.percent(data.crecimientoPct) }}
+      <span :class="hub.trendClass(data.crecimientoPct)">
+        {{ data.crecimientoPct > 0 ? '+' : '' }}{{ hub.percent(data.crecimientoPct) }}
       </span>
                   </template>
                   <template #footer>
-                    <strong :class="trendClass(productTotals.crecimientoPct)">
+                    <strong :class="hub.trendClass(productTotals.crecimientoPct)">
                       {{ hub.productTotals.crecimientoPct > 0 ? '+' : '' }}{{ hub.percent(productTotals.crecimientoPct) }}
                     </strong>
                   </template>
@@ -197,13 +197,13 @@ const hub = useHubLogic();
 
                 <Column field="crecimientoMonto" header="Crec. vs Dic">
                   <template #body="{ data }">
-    <span :class="trendClass(productGrowthAmount(data))">
+    <span :class="hub.trendClass(productGrowthAmount(data))">
       {{ hub.signedMoneyFull(productGrowthAmount(data)) }}
     </span>
                   </template>
 
                   <template #footer>
-                    <strong :class="trendClass(productTotals.crecimientoMonto)">
+                    <strong :class="hub.trendClass(productTotals.crecimientoMonto)">
                       {{ hub.signedMoneyFull(productTotals.crecimientoMonto) }}
                     </strong>
                   </template>

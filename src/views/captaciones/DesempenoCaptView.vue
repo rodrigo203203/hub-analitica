@@ -233,8 +233,8 @@ const hub = useHubLogic();
                 <Column field="categoriaTendencia" header="Tendencia">
                   <template #body="{ data }">
                     <Tag
-                        :severity="captacionCategorySeverity(data.categoriaTendencia)"
-                        :value="hub.data.categoriaTendencia || 'N/D'"
+                        :severity="hub.captacionCategorySeverity(data.categoriaTendencia)"
+                        :value="data.categoriaTendencia || 'N/D'"
                     />
                   </template>
                 </Column>

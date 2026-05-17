@@ -32,12 +32,16 @@ const dateOptions = computed(() => filtersStore.dateOptionsFor(route.name));
 const showBankFilter = computed(() => filtersStore.showBankFilterFor(route.name));
 
 async function reloadData() {
-    await dataStore.loadAll(filtersStore.getAppliedParams(), {
-        onCatalogsLoaded: (data) => {
-            catalogs.value = { ...data, agencias: data.agencias || [] };
-            filtersStore.setInitialDate(data.fechas);
-        }
-    });
+    try {
+        await dataStore.loadAll(filtersStore.getAppliedParams(), {
+            onCatalogsLoaded: (data) => {
+                catalogs.value = { ...data, agencias: data.agencias || [] };
+                filtersStore.setInitialDate(data.fechas);
+            }
+        });
+    } catch (err) {
+        console.error('Error cargando datos del hub:', err);
+    }
 }
 
 function onApplyFilters() {
@@ -114,7 +118,7 @@ onMounted(() => reloadData());
             />
 
             <LoadingSkeletons v-if="loading" />
-            <RouterView v-else />
+            <RouterView v-else :key="route.fullPath" />
         </main>
     </div>
 </template>

@@ -150,7 +150,7 @@ const hub = useHubLogic();
                 <Column field="maduracionPct" header="Maduración" sortable>
                   <template #body="{ data }">
                     <Tag
-                        :severity="maduracionAlertSeverity(data.maduracionPct)"
+                        :severity="hub.maduracionAlertSeverity(data.maduracionPct)"
                         :value="hub.percent(data.maduracionPct)"
                     />
                   </template>
@@ -169,7 +169,7 @@ const hub = useHubLogic();
                   <template #body="{ data }">
                     <Tag
                         :severity="data.prioridad === 'Alta' ? 'danger' : data.prioridad === 'Media' ? 'warning' : 'success'"
-                        :value="hub.data.prioridad"
+                        :value="data.prioridad"
                     />
                   </template>
                 </Column>

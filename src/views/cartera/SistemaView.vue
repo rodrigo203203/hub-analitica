@@ -32,7 +32,7 @@ const hub = useHubLogic();
                   <thead>
                   <tr>
                     <th>Banco</th>
-                    <th v-for="prod in benchmarkMatrix.productos" :key="prod" style="text-align: center;">
+                    <th v-for="prod in hub.benchmarkMatrix.productos" :key="prod" style="text-align: center;">
                       {{ hub.prod }}
                     </th>
                     <th style="text-align: center; width: 140px;">Participación</th>
@@ -40,19 +40,19 @@ const hub = useHubLogic();
                   </tr>
                   </thead>
                   <tbody>
-                  <tr v-for="row in benchmarkMatrix.matrix" :key="row.banco">
+                  <tr v-for="row in hub.benchmarkMatrix.matrix" :key="row.banco">
                     <td>
                       <div class="bname">
                         <span class="bdot" :class="{ bnb: row.banco === 'BNB' }"></span>
-                        <strong v-if="row.banco === 'BNB'">{{ hub.row.banco }}</strong>
-                        <span v-else>{{ hub.row.banco }}</span>
+                        <strong v-if="row.banco === 'BNB'">{{ row.banco }}</strong>
+                        <span v-else>{{ row.banco }}</span>
                       </div>
                     </td>
-                    <td v-for="prod in benchmarkMatrix.productos" :key="prod"
+                    <td v-for="prod in hub.benchmarkMatrix.productos" :key="prod"
                         style="text-align: center; vertical-align: middle;">
                       <div v-if="row[prod]" class="sf-cell">
                         <div
-                            :class="trendClass(row[prod].crecimientoTotal)"
+                            :class="hub.trendClass(row[prod].crecimientoTotal)"
                             style="font-weight: 700; font-size: 1.05em; margin-bottom: 4px;"
                         >
                           {{ hub.signedMoneyK(row[prod].crecimientoTotal) }}
@@ -79,12 +79,12 @@ const hub = useHubLogic();
                       </div>
 
                       <small class="participation-label" v-if="row.rowStock > 0">
-                        {{ hub.row.composition.length }} productos
+                        {{ row.composition.length }} productos
                       </small>
                     </td>
                     <td style="text-align: center; vertical-align: middle;">
                       <strong
-                          :class="trendClass(row.rowGrowth)"
+                          :class="hub.trendClass(row.rowGrowth)"
                           style="font-size: 1.1em; display: block;"
                       >
                         {{ hub.signedMoneyK(row.rowGrowth) }}
@@ -161,7 +161,7 @@ const hub = useHubLogic();
                     <th class="sticky-col">Banco</th>
 
                     <th
-                        v-for="segment in sharedPortfolioMatrix.segments"
+                        v-for="segment in hub.sharedPortfolioMatrix.segments"
                         :key="segment"
                         class="segment-col"
                     >
@@ -175,30 +175,30 @@ const hub = useHubLogic();
 
                   <tbody>
                   <tr
-                      v-for="row in sharedPortfolioMatrix.rows"
+                      v-for="row in hub.sharedPortfolioMatrix.rows"
                       :key="row.banco"
                   >
                     <td class="sticky-col bank-cell">
                       <div class="bank-name">
                         <span class="bank-dot"></span>
-                        <strong>{{ hub.row.banco }}</strong>
+                        <strong>{{ row.banco }}</strong>
                       </div>
                     </td>
 
                     <td
-                        v-for="segment in sharedPortfolioMatrix.segments"
+                        v-for="segment in hub.sharedPortfolioMatrix.segments"
                         :key="`${row.banco}-${segment}`"
                     >
                       <div
                           class="matrix-cell"
-                          :class="matrixCellClass(row.segmentos[segment]?.monto)"
+                          :class="hub.matrixCellClass(row.segmentos[segment]?.monto)"
                       >
                         <strong>
                           {{ hub.moneyFullNoDecimals(row.segmentos[segment]?.monto || 0) }}
                         </strong>
 
                         <small>
-                          {{ hub.row.segmentos[segment]?.participacionSegmentoPct === null ||
+                          {{ row.segmentos[segment]?.participacionSegmentoPct === null ||
                             row.segmentos[segment]?.participacionSegmentoPct === undefined
                                 ? 'N/A'
                                 : `${Number(row.segmentos[segment]?.participacionSegmentoPct).toFixed(1)}% del segmento`
@@ -227,7 +227,7 @@ const hub = useHubLogic();
                     </td>
 
                     <td
-                        v-for="segment in sharedPortfolioMatrix.segments"
+                        v-for="segment in hub.sharedPortfolioMatrix.segments"
                         :key="`total-${segment}`"
                     >
                       <strong>
@@ -302,7 +302,7 @@ const hub = useHubLogic();
                   <template #body="{ data }">
                     <Tag
                         :severity="data.prioridad === 'Alta' ? 'danger' : data.prioridad === 'Media' ? 'warning' : 'success'"
-                        :value="hub.data.prioridad"
+                        :value="data.prioridad"
                     />
                   </template>
                 </Column>
