@@ -119,6 +119,51 @@ Las sentencias usan únicamente `SELECT` / `WITH` y aliases coherentes con el ma
 
 ## Notas operativas
 
-- La sección de **captaciones** permanece como espacio reservado hasta que exista una fuente oficial documentada.
+- La sección de **captaciones** consume los endpoints de captaciones del BFF cuando hay datos disponibles.
 - El **agente** responde desde el servidor; no se incrustan credenciales ni claves en el bundle del cliente.
 - En despliegue productivo, sirve el BFF detrás de HTTPS y restringe CORS al dominio del hub.
+
+## Arquitectura del frontend
+
+El frontend está organizado en capas modulares (Vue 3 + Vue Router + Pinia):
+
+```
+src/
+├── App.vue                 # Shell: entrada, sidebar, topbar, filtros, <RouterView>
+├── main.js                 # Bootstrap: Pinia, Router, PrimeVue, Font Awesome
+├── router/index.js         # Rutas hash por sección del menú
+├── stores/                 # Estado global (Pinia)
+│   ├── useAppStore.js      # UI: menú, sidebar, hasEntered
+│   ├── useDataStore.js     # Datos del API + loadAll()
+│   ├── useFiltersStore.js  # Catálogos y filtros aplicados
+│   └── useChatStore.js     # Chat IA y memoria de sesión
+├── composables/
+│   ├── useHubLogic.js      # Computeds y helpers de negocio (gráficos, KPIs)
+│   ├── useAgentPrompts.js  # Builders de prompts y triggers del agente
+│   └── useChart.js         # Constantes Chart.js compartidas
+├── views/                  # Una vista por ruta (páginas)
+├── components/             # UI reutilizable (KpiCard, FilterBar, …)
+├── utils/formatting.js     # Formateo local complementario a format.js
+└── styles.css              # Variables globales y layout base
+```
+
+### Responsabilidad de cada capa
+
+| Capa | Rol |
+|------|-----|
+| **stores** | Fuente de verdad para datos, filtros, chat y estado de shell |
+| **useHubLogic** | Derivados de negocio (totales, charts, tablas) consumidos por las vistas |
+| **views** | Template de cada sección; importan `useHubLogic()` como `hub` |
+| **components** | Piezas de UI sin lógica de dominio |
+
+### Convenciones
+
+- **views/** = páginas enlazadas al router (`PortadaView`, `cartera/DesempenoView`, …).
+- **components/** = bloques reutilizables (`KpiCard`, `SectionHeader`, `ChatContextSummary`, …).
+
+### Agregar una nueva sección al menú
+
+1. Crear la vista en `src/views/…`.
+2. Registrar la ruta en `src/router/index.js` (lazy import).
+3. Añadir el ítem en `sections` de `src/stores/useAppStore.js` con `id`, `label`, `icon` y `path`.
+4. Si la sección usa filtros, no incluir su `route.name` en `showFiltersFor` → exclusiones de `useFiltersStore.js`.

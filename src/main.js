@@ -1,11 +1,14 @@
-import {createApp} from 'vue';
+import { createApp } from 'vue';
+import { createPinia } from 'pinia';
 import PrimeVue from 'primevue/config';
 import Aura from '@primevue/themes/aura';
 import 'primeicons/primeicons.css';
+import { router } from './router/index.js';
 import {library} from '@fortawesome/fontawesome-svg-core';
 import {FontAwesomeIcon} from '@fortawesome/vue-fontawesome';
 import {
     faArrowRight,
+    faArrowTrendDown,
     faArrowTrendUp,
     faBars,
     faBolt,
@@ -17,12 +20,19 @@ import {
     faChartSimple,
     faChevronDown,
     faCircleCheck,
+    faCircleExclamation,
+    faCircleQuestion,
     faClock,
+    faCreditCard,
     faDatabase,
     faGaugeHigh,
+    faHourglass,
+    faHourglassHalf,
     faHouse,
     faLayerGroup,
+    faLightbulb,
     faMessage,
+    faPiggyBank,
     faRankingStar,
     faRobot,
     faRotate,
@@ -39,6 +49,7 @@ import './styles.css';
 
 library.add(
     faArrowRight,
+    faArrowTrendDown,
     faArrowTrendUp,
     faBars,
     faBolt,
@@ -50,12 +61,19 @@ library.add(
     faChartSimple,
     faChevronDown,
     faCircleCheck,
+    faCircleExclamation,
+    faCircleQuestion,
     faClock,
+    faCreditCard,
     faDatabase,
     faGaugeHigh,
+    faHourglass,
+    faHourglassHalf,
     faHouse,
     faLayerGroup,
+    faLightbulb,
     faMessage,
+    faPiggyBank,
     faRankingStar,
     faRobot,
     faRotate,
@@ -69,6 +87,8 @@ library.add(
 );
 
 createApp(App)
+    .use(createPinia())
+    .use(router)
     .use(PrimeVue, {
         theme: {
             preset: Aura,
