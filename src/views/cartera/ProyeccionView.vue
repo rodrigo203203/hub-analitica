@@ -8,6 +8,7 @@ import Dropdown from 'primevue/dropdown';
 import Button from 'primevue/button';
 import Tag from 'primevue/tag';
 import ProgressBar from 'primevue/progressbar';
+import MultiSelect from 'primevue/multiselect';
 
 const hub = useHubLogic();
 </script>
@@ -96,7 +97,7 @@ const hub = useHubLogic();
                 <div class="projection-summary-stack">
                   <span class="projection-summary-label">Stock actual</span>
                   <strong class="projection-summary-value">
-                    {{ hub.moneyFull(projectionYearSummary.stockActual) }}
+                    {{ hub.moneyFull(hub.projectionYearSummary.stockActual) }}
                   </strong>
                   <small class="projection-summary-helper">Productos seleccionados</small>
                 </div>
@@ -108,12 +109,12 @@ const hub = useHubLogic();
                 <div class="projection-summary-stack">
                   <span class="projection-summary-label">Desembolsos 2026</span>
                   <strong class="projection-summary-value">
-                    {{ hub.moneyFull(projectionYearSummary.totalDesembolsoAnio) }}
+                    {{ hub.moneyFull(hub.projectionYearSummary.totalDesembolsoAnio) }}
                   </strong>
 
                   <div class="projection-summary-split">
-                    <span>Real: <b>{{ hub.moneyFull(projectionYearSummary.desembolsoReal) }}</b></span>
-                    <span>Proy.: <b>{{ hub.moneyFull(projectionYearSummary.desembolsoProyectado) }}</b></span>
+                    <span>Real: <b>{{ hub.moneyFull(hub.projectionYearSummary.desembolsoReal) }}</b></span>
+                    <span>Proy.: <b>{{ hub.moneyFull(hub.projectionYearSummary.desembolsoProyectado) }}</b></span>
                   </div>
                 </div>
               </template>
@@ -124,12 +125,12 @@ const hub = useHubLogic();
                 <div class="projection-summary-stack">
                   <span class="projection-summary-label">Amortizaciones 2026</span>
                   <strong class="projection-summary-value">
-                    {{ hub.moneyFull(projectionYearSummary.totalAmortizacionAnio) }}
+                    {{ hub.moneyFull(hub.projectionYearSummary.totalAmortizacionAnio) }}
                   </strong>
 
                   <div class="projection-summary-split">
-                    <span>Real: <b>{{ hub.moneyFull(projectionYearSummary.amortizacionReal) }}</b></span>
-                    <span>Proy.: <b>{{ hub.moneyFull(projectionYearSummary.amortizacionProyectada) }}</b></span>
+                    <span>Real: <b>{{ hub.moneyFull(hub.projectionYearSummary.amortizacionReal) }}</b></span>
+                    <span>Proy.: <b>{{ hub.moneyFull(hub.projectionYearSummary.amortizacionProyectada) }}</b></span>
                   </div>
                 </div>
               </template>
@@ -140,7 +141,7 @@ const hub = useHubLogic();
                 <div class="projection-summary-stack">
                   <span class="projection-summary-label">Stock estimado fin de año</span>
                   <strong class="projection-summary-value projection-summary-value-main">
-                    {{ hub.moneyFull(projectionYearSummary.stockFinAnio) }}
+                    {{ hub.moneyFull(hub.projectionYearSummary.stockFinAnio) }}
                   </strong>
                   <small class="projection-summary-helper">
                     Stock actual + desembolsos proyectados - amortizaciones proyectadas
@@ -151,7 +152,7 @@ const hub = useHubLogic();
 
             <Card
                 class="projection-summary-card"
-                :class="Number(projectionYearSummary.crecimientoVsDicMonto || 0) >= 0 ? 'is-good' : 'is-risk'"
+                :class="Number(hub.projectionYearSummary.crecimientoVsDicMonto || 0) >= 0 ? 'is-good' : 'is-risk'"
             >
               <template #content>
                 <div class="projection-summary-stack">
@@ -159,9 +160,9 @@ const hub = useHubLogic();
 
                   <strong
                       class="projection-summary-value"
-                      :class="Number(projectionYearSummary.crecimientoVsDicMonto || 0) >= 0 ? 'text-green' : 'text-danger'"
+                      :class="Number(hub.projectionYearSummary.crecimientoVsDicMonto || 0) >= 0 ? 'text-green' : 'text-danger'"
                   >
-                    {{ hub.signedMoneyFull(projectionYearSummary.crecimientoVsDicMonto) }}
+                    {{ hub.signedMoneyFull(hub.projectionYearSummary.crecimientoVsDicMonto) }}
                   </strong>
 
                   <div class="projection-summary-split">
@@ -169,12 +170,12 @@ const hub = useHubLogic();
           Crecimiento:
           <b>
             {{ hub.projectionYearSummary.crecimientoVsDicPct > 0 ? '+' : ''
-            }}{{ hub.percent(projectionYearSummary.crecimientoVsDicPct) }}
+            }}{{ hub.percent(hub.projectionYearSummary.crecimientoVsDicPct) }}
           </b>
         </span>
                     <span>
           Stock Dic-25:
-          <b>{{ hub.moneyFull(projectionYearSummary.stockBase) }}</b>
+          <b>{{ hub.moneyFull(hub.projectionYearSummary.stockBase) }}</b>
         </span>
                   </div>
                 </div>
@@ -183,7 +184,7 @@ const hub = useHubLogic();
 
             <Card
                 class="projection-summary-card"
-                :class="Number(projectionYearSummary.diferenciaVsPresupuesto || 0) >= 0 ? 'is-good' : 'is-risk'"
+                :class="Number(hub.projectionYearSummary.diferenciaVsPresupuesto || 0) >= 0 ? 'is-good' : 'is-risk'"
             >
               <template #content>
                 <div class="projection-summary-stack">
@@ -191,15 +192,15 @@ const hub = useHubLogic();
 
                   <strong
                       class="projection-summary-value"
-                      :class="Number(projectionYearSummary.diferenciaVsPresupuesto || 0) >= 0 ? 'text-green' : 'text-danger'"
+                      :class="Number(hub.projectionYearSummary.diferenciaVsPresupuesto || 0) >= 0 ? 'text-green' : 'text-danger'"
                   >
-                    {{ hub.signedMoneyFull(projectionYearSummary.diferenciaVsPresupuesto) }}
+                    {{ hub.signedMoneyFull(hub.projectionYearSummary.diferenciaVsPresupuesto) }}
                   </strong>
 
                   <div class="projection-summary-split">
         <span>
           Stock presupuesto:
-          <b>{{ hub.moneyFull(projectionYearSummary.presupuesto) }}</b>
+          <b>{{ hub.moneyFull(hub.projectionYearSummary.presupuesto) }}</b>
         </span>
                   </div>
                 </div>

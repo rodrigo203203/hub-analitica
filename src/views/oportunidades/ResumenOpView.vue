@@ -30,7 +30,7 @@ const hub = useHubLogic();
                 <div class="projection-summary-stack">
                   <span class="projection-summary-label">Oportunidad total</span>
                   <strong class="projection-summary-value">
-                    {{ hub.moneyFull(oportunidadesTotals.oportunidadTotal) }}
+                    {{ hub.moneyFull(hub.oportunidadesTotals.oportunidadTotal) }}
                   </strong>
                   <small class="projection-summary-helper">LCF no utilizado + cartera otros bancos</small>
                 </div>
@@ -42,10 +42,10 @@ const hub = useHubLogic();
                 <div class="projection-summary-stack">
                   <span class="projection-summary-label">Cupo LCF no utilizado</span>
                   <strong class="projection-summary-value">
-                    {{ hub.moneyFull(lcfTotals.cupoNoUtilizado) }}
+                    {{ hub.moneyFull(hub.lcfTotals.cupoNoUtilizado) }}
                   </strong>
                   <small class="projection-summary-helper">
-                    {{ hub.percent(lcfTotals.cupoNoUtilizadoPct) }} del monto autorizado
+                    {{ hub.percent(hub.lcfTotals.cupoNoUtilizadoPct) }} del monto autorizado
                   </small>
                 </div>
               </template>
@@ -56,10 +56,10 @@ const hub = useHubLogic();
                 <div class="projection-summary-stack">
                   <span class="projection-summary-label">Cartera en otros bancos</span>
                   <strong class="projection-summary-value">
-                    {{ hub.moneyFull(sharedPortfolioTotals.otrosBancos) }}
+                    {{ hub.moneyFull(hub.sharedPortfolioTotals.otrosBancos) }}
                   </strong>
                   <small class="projection-summary-helper">
-                    {{ hub.percent(sharedPortfolioTotals.participacionOtrosPct) }} del total compartido
+                    {{ hub.percent(hub.sharedPortfolioTotals.participacionOtrosPct) }} del total compartido
                   </small>
                 </div>
               </template>
@@ -70,7 +70,7 @@ const hub = useHubLogic();
                 <div class="projection-summary-stack">
                   <span class="projection-summary-label">Maduración ponderada</span>
                   <strong class="projection-summary-value">
-                    {{ hub.percent(maduracionTotals.maduracionPonderadaPct) }}
+                    {{ hub.percent(hub.maduracionTotals.maduracionPonderadaPct) }}
                   </strong>
                   <small class="projection-summary-helper">Mayor % = mayor alerta · ponderada por stock vigente</small>
                 </div>

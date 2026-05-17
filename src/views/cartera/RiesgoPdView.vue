@@ -20,7 +20,7 @@ const hub = useHubLogic();
               <span>Cartera · Riesgo predictivo</span>
               <h3>Alertas tempranas de probabilidad de mora</h3>
             </div>
-            <Tag severity="danger" :value="hub.dateIso(pdRisk?.[0]?.fecha) || 'N/D'"/>
+            <Tag severity="danger" :value="hub.dateIso(hub.pdRisk?.[0]?.fecha) || 'N/D'"/>
           </div>
 
           <div class="risk-story-hero">
@@ -35,7 +35,7 @@ const hub = useHubLogic();
                 <div class="risk-main-status">
                   <div>
                     <span>Participación alta</span>
-                    <strong>{{ hub.percent(pdRiskTotals.altoPct) }}</strong>
+                    <strong>{{ hub.percent(hub.pdRiskTotals.altoPct) }}</strong>
                   </div>
                   <div>
                     <span>Total evaluado</span>
@@ -50,7 +50,7 @@ const hub = useHubLogic();
                 <span>Alta</span>
                 <div style="display: flex;flex-direction: column"><strong>{{ hub.pdRiskTotals.alto.toLocaleString('en-US')
                   }}</strong>
-                  <small>{{ hub.percent(pdRiskTotals.altoPct) }} del total</small></div>
+                  <small>{{ hub.percent(hub.pdRiskTotals.altoPct) }} del total</small></div>
 
               </template>
             </Card>
@@ -60,7 +60,7 @@ const hub = useHubLogic();
                 <span>Media</span>
                 <div style="display: flex;flex-direction: column">
                   <strong>{{ hub.pdRiskTotals.media.toLocaleString('en-US') }}</strong>
-                  <small>{{ hub.percent(pdRiskTotals.mediaPct) }} del total</small></div>
+                  <small>{{ hub.percent(hub.pdRiskTotals.mediaPct) }} del total</small></div>
               </template>
             </Card>
 
@@ -69,7 +69,7 @@ const hub = useHubLogic();
                 <span>Baja</span>
                 <div style="display: flex;flex-direction: column">
                   <strong>{{ hub.pdRiskTotals.baja.toLocaleString('en-US') }}</strong>
-                  <small>{{ hub.percent(pdRiskTotals.bajaPct) }} del total</small></div>
+                  <small>{{ hub.percent(hub.pdRiskTotals.bajaPct) }} del total</small></div>
               </template>
             </Card>
           </div>
@@ -143,25 +143,25 @@ const hub = useHubLogic();
 
                 <Column field="alto" header="Alta">
                   <template #body="{ data }">
-                    <strong class="text-danger">{{ hub.Number(data.alto || 0).toLocaleString('en-US') }}</strong>
+                    <strong class="text-danger">{{ Number(data.alto || 0).toLocaleString('en-US') }}</strong>
                   </template>
                 </Column>
 
                 <Column field="media" header="Media">
                   <template #body="{ data }">
-                    <strong>{{ hub.Number(data.media || 0).toLocaleString('en-US') }}</strong>
+                    <strong>{{ Number(data.media || 0).toLocaleString('en-US') }}</strong>
                   </template>
                 </Column>
 
                 <Column field="baja" header="Baja">
                   <template #body="{ data }">
-                    {{ hub.Number(data.baja || 0).toLocaleString('en-US') }}
+                    {{ Number(data.baja || 0).toLocaleString('en-US') }}
                   </template>
                 </Column>
 
                 <Column field="totalOperaciones" header="Total">
                   <template #body="{ data }">
-                    {{ hub.Number(data.totalOperaciones || 0).toLocaleString('en-US') }}
+                    {{ Number(data.totalOperaciones || 0).toLocaleString('en-US') }}
                   </template>
                 </Column>
 

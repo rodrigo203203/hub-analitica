@@ -117,8 +117,10 @@ onMounted(() => reloadData());
                 @reset="onResetFilters"
             />
 
-            <LoadingSkeletons v-if="loading" />
-            <RouterView v-else :key="route.fullPath" />
+            <div class="page-content">
+                <LoadingSkeletons v-if="loading" class="page-loading-overlay" />
+                <RouterView :key="route.fullPath" />
+            </div>
         </main>
     </div>
 </template>

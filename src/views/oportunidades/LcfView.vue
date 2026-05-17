@@ -29,7 +29,7 @@ const hub = useHubLogic();
               <template #content>
                 <div class="projection-summary-stack">
                   <span class="projection-summary-label">Monto autorizado</span>
-                  <strong class="projection-summary-value">{{ hub.moneyFull(lcfTotals.montoAutorizado) }}</strong>
+                  <strong class="projection-summary-value">{{ hub.moneyFull(hub.lcfTotals.montoAutorizado) }}</strong>
                   <small class="projection-summary-helper">Monto desembolsado/aprobado</small>
                 </div>
               </template>
@@ -39,8 +39,8 @@ const hub = useHubLogic();
               <template #content>
                 <div class="projection-summary-stack">
                   <span class="projection-summary-label">Saldo activado</span>
-                  <strong class="projection-summary-value">{{ hub.moneyFull(lcfTotals.saldoActivado) }}</strong>
-                  <small class="projection-summary-helper">{{ hub.percent(lcfTotals.activacionPct) }} de activación</small>
+                  <strong class="projection-summary-value">{{ hub.moneyFull(hub.lcfTotals.saldoActivado) }}</strong>
+                  <small class="projection-summary-helper">{{ hub.percent(hub.lcfTotals.activacionPct) }} de activación</small>
                 </div>
               </template>
             </Card>
@@ -49,8 +49,8 @@ const hub = useHubLogic();
               <template #content>
                 <div class="projection-summary-stack">
                   <span class="projection-summary-label">Cupo no utilizado</span>
-                  <strong class="projection-summary-value">{{ hub.moneyFull(lcfTotals.cupoNoUtilizado) }}</strong>
-                  <small class="projection-summary-helper">{{ hub.percent(lcfTotals.cupoNoUtilizadoPct) }} pendiente de activar</small>
+                  <strong class="projection-summary-value">{{ hub.moneyFull(hub.lcfTotals.cupoNoUtilizado) }}</strong>
+                  <small class="projection-summary-helper">{{ hub.percent(hub.lcfTotals.cupoNoUtilizadoPct) }} pendiente de activar</small>
                 </div>
               </template>
             </Card>
@@ -124,7 +124,7 @@ const hub = useHubLogic();
 
                 <Column field="agenciasCount" header="Agencias">
                   <template #body="{ data }">
-                    {{ hub.Number(data.agenciasCount || 0).toLocaleString('en-US') }}
+                    {{ Number(data.agenciasCount || 0).toLocaleString('en-US') }}
                   </template>
                 </Column>
 

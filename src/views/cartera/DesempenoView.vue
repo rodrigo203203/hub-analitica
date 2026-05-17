@@ -20,7 +20,7 @@ const hub = useHubLogic();
               <span>Cartera · Desempeño comercial</span>
               <h3>Lectura ejecutiva del portafolio</h3>
             </div>
-            <Tag severity="info" :value="hub.dateIso(summary?.fechaCorte) || 'N/D'"/>
+            <Tag severity="info" :value="hub.dateIso(hub.summary?.fechaCorte) || 'N/D'"/>
           </div>
 
           <div class="performance-hero">
@@ -32,9 +32,9 @@ const hub = useHubLogic();
 
                     <h2
                         class="performance-main-amount"
-                        :class="Number(summary?.brechaPresupuesto || 0) >= 0 ? 'amount-positive' : 'amount-negative'"
+                        :class="Number(hub.summary?.brechaPresupuesto || 0) >= 0 ? 'amount-positive' : 'amount-negative'"
                     >
-                      {{ hub.signedMoneyFull(summary?.brechaPresupuesto) }}
+                      {{ hub.signedMoneyFull(hub.summary?.brechaPresupuesto) }}
                     </h2>
 
                     <p>Brecha de stock actual contra presupuesto vigente.</p>
@@ -42,18 +42,18 @@ const hub = useHubLogic();
                     <div class="performance-main-metrics">
                       <div>
                         <span>Cumplimiento</span>
-                        <strong :class="Number(summary?.cumplimientoPct || 0) >= 100 ? 'text-green' : 'text-danger'">
-                          {{ hub.percent(summary?.cumplimientoPct) }}
+                        <strong :class="Number(hub.summary?.cumplimientoPct || 0) >= 100 ? 'text-green' : 'text-danger'">
+                          {{ hub.percent(hub.summary?.cumplimientoPct) }}
                         </strong>
                       </div>
 
                       <div>
                         <span>Crecimiento a diciembre</span>
-                        <strong :class="hub.trendClass(summary?.crecimientoNominal)">
-                          {{ hub.signedMoneyFull(summary?.crecimientoNominal) }}
+                        <strong :class="hub.trendClass(hub.summary?.crecimientoNominal)">
+                          {{ hub.signedMoneyFull(hub.summary?.crecimientoNominal) }}
                         </strong>
                         <small>
-                          {{ hub.summary?.crecimientoPct > 0 ? '+' : '' }}{{ hub.percent(summary?.crecimientoPct) }}
+                          {{ hub.summary?.crecimientoPct > 0 ? '+' : '' }}{{ hub.percent(hub.summary?.crecimientoPct) }}
                           contra base Dic-25
                         </small>
                       </div>
@@ -62,12 +62,12 @@ const hub = useHubLogic();
 
                   <div
                       class="performance-score"
-                      :class="Number(summary?.cumplimientoPct || 0) >= 100 ? 'is-good' : 'is-risk'"
+                      :class="Number(hub.summary?.cumplimientoPct || 0) >= 100 ? 'is-good' : 'is-risk'"
                   >
                     <font-awesome-icon
-                        :icon="Number(summary?.cumplimientoPct || 0) >= 100 ? 'circle-check' : 'triangle-exclamation'"
+                        :icon="Number(hub.summary?.cumplimientoPct || 0) >= 100 ? 'circle-check' : 'triangle-exclamation'"
                     />
-                    <strong>{{ hub.Number(summary?.cumplimientoPct || 0) >= 100 ? 'Meta alcanzada' : 'Bajo meta' }}</strong>
+                    <strong>{{ Number(hub.summary?.cumplimientoPct || 0) >= 100 ? 'Meta alcanzada' : 'Bajo meta' }}</strong>
                   </div>
                 </div>
 
@@ -75,8 +75,8 @@ const hub = useHubLogic();
                   <div class="performance-progress-track">
                     <div
                         class="performance-progress-fill"
-                        :class="Number(summary?.cumplimientoPct || 0) >= 100 ? 'fill-good' : 'fill-risk'"
-                        :style="{ width: Math.min(Math.max(Number(summary?.cumplimientoPct || 0), 0), 120) / 120 * 100 + '%' }"
+                        :class="Number(hub.summary?.cumplimientoPct || 0) >= 100 ? 'fill-good' : 'fill-risk'"
+                        :style="{ width: Math.min(Math.max(Number(hub.summary?.cumplimientoPct || 0), 0), 120) / 120 * 100 + '%' }"
                     ></div>
                     <span class="performance-progress-marker"></span>
                   </div>
@@ -94,7 +94,7 @@ const hub = useHubLogic();
                 <template #content>
                   <div class="metric-card-stack">
                     <span class="metric-card-label">Stock actual</span>
-                    <strong class="metric-card-value">{{ hub.moneyFull(summary?.stockActual) }}</strong>
+                    <strong class="metric-card-value">{{ hub.moneyFull(hub.summary?.stockActual) }}</strong>
                     <small class="metric-card-helper">Cartera vigente al corte</small>
                   </div>
                 </template>
@@ -104,7 +104,7 @@ const hub = useHubLogic();
                 <template #content>
                   <div class="metric-card-stack">
                     <span class="metric-card-label">Presupuesto</span>
-                    <strong class="metric-card-value">{{ hub.moneyFull(summary?.presupuesto) }}</strong>
+                    <strong class="metric-card-value">{{ hub.moneyFull(hub.summary?.presupuesto) }}</strong>
                     <small class="metric-card-helper">Meta vigente de stock</small>
                   </div>
                 </template>
@@ -119,7 +119,7 @@ const hub = useHubLogic();
                 </div>
                 <div>
                   <span>Desembolsos acumulados</span>
-                  <strong>{{ hub.moneyFull(summary?.desembolsosAcum) }}</strong>
+                  <strong>{{ hub.moneyFull(hub.summary?.desembolsosAcum) }}</strong>
                   <small>Ritmo comercial acumulado del año</small>
                 </div>
               </template>
@@ -132,7 +132,7 @@ const hub = useHubLogic();
                 </div>
                 <div>
                   <span>Amortización acumulada</span>
-                  <strong>{{ hub.moneyFull(summary?.amortizacion) }}</strong>
+                  <strong>{{ hub.moneyFull(hub.summary?.amortizacion) }}</strong>
                   <small>Salida acumulada de cartera</small>
                 </div>
               </template>
@@ -145,8 +145,8 @@ const hub = useHubLogic();
                 </div>
                 <div>
                   <span>Crecimiento nominal</span>
-                  <strong :class="hub.trendClass(summary?.crecimientoNominal)">
-                    {{ hub.signedMoneyFull(summary?.crecimientoNominal) }}
+                  <strong :class="hub.trendClass(hub.summary?.crecimientoNominal)">
+                    {{ hub.signedMoneyFull(hub.summary?.crecimientoNominal) }}
                   </strong>
                   <small>Variación contra base Dic-25</small>
                 </div>
@@ -178,7 +178,7 @@ const hub = useHubLogic();
                     <strong>{{ hub.moneyFull(data.stock) }}</strong>
                   </template>
                   <template #footer>
-                    <strong>{{ hub.moneyFull(productTotals.stock) }}</strong>
+                    <strong>{{ hub.moneyFull(hub.productTotals.stock) }}</strong>
                   </template>
                 </Column>
 
@@ -189,8 +189,8 @@ const hub = useHubLogic();
       </span>
                   </template>
                   <template #footer>
-                    <strong :class="hub.trendClass(productTotals.crecimientoPct)">
-                      {{ hub.productTotals.crecimientoPct > 0 ? '+' : '' }}{{ hub.percent(productTotals.crecimientoPct) }}
+                    <strong :class="hub.trendClass(hub.productTotals.crecimientoPct)">
+                      {{ hub.productTotals.crecimientoPct > 0 ? '+' : '' }}{{ hub.percent(hub.productTotals.crecimientoPct) }}
                     </strong>
                   </template>
                 </Column>
@@ -203,8 +203,8 @@ const hub = useHubLogic();
                   </template>
 
                   <template #footer>
-                    <strong :class="hub.trendClass(productTotals.crecimientoMonto)">
-                      {{ hub.signedMoneyFull(productTotals.crecimientoMonto) }}
+                    <strong :class="hub.trendClass(hub.productTotals.crecimientoMonto)">
+                      {{ hub.signedMoneyFull(hub.productTotals.crecimientoMonto) }}
                     </strong>
                   </template>
                 </Column>
@@ -214,7 +214,7 @@ const hub = useHubLogic();
                     {{ hub.moneyFull(data.desembolsos) }}
                   </template>
                   <template #footer>
-                    <strong>{{ hub.moneyFull(productTotals.desembolsos) }}</strong>
+                    <strong>{{ hub.moneyFull(hub.productTotals.desembolsos) }}</strong>
                   </template>
                 </Column>
 
@@ -223,7 +223,7 @@ const hub = useHubLogic();
                     {{ hub.moneyFull(data.amortizacion) }}
                   </template>
                   <template #footer>
-                    <strong>{{ hub.moneyFull(productTotals.amortizacion) }}</strong>
+                    <strong>{{ hub.moneyFull(hub.productTotals.amortizacion) }}</strong>
                   </template>
                 </Column>
 
@@ -232,7 +232,7 @@ const hub = useHubLogic();
                     {{ hub.moneyFull(data.presupuesto) }}
                   </template>
                   <template #footer>
-                    <strong>{{ hub.moneyFull(productTotals.presupuesto) }}</strong>
+                    <strong>{{ hub.moneyFull(hub.productTotals.presupuesto) }}</strong>
                   </template>
                 </Column>
                 <Column field="diferenciaPresupuesto" header="Brecha">
@@ -245,8 +245,8 @@ const hub = useHubLogic();
 
                   <template #footer>
                     <strong
-                        :class="Number(productTotals.stock || 0) - Number(productTotals.presupuesto || 0) >= 0 ? 'text-green' : 'text-danger'">
-                      {{ hub.signedMoneyFull(Number(productTotals.stock || 0) - Number(productTotals.presupuesto || 0)) }}
+                        :class="Number(hub.productTotals.stock || 0) - Number(hub.productTotals.presupuesto || 0) >= 0 ? 'text-green' : 'text-danger'">
+                      {{ hub.signedMoneyFull(Number(hub.productTotals.stock || 0) - Number(hub.productTotals.presupuesto || 0)) }}
                     </strong>
                   </template>
                 </Column>
@@ -261,7 +261,7 @@ const hub = useHubLogic();
                             class="compliance-status"
                             :class="Number(data.cumplimientoPct || 0) >= 100 ? 'is-good' : 'is-risk'"
                         >
-            {{ hub.Number(data.cumplimientoPct || 0) >= 100 ? 'Meta alcanzada' : 'Bajo meta' }}
+            {{ Number(data.cumplimientoPct || 0) >= 100 ? 'Meta alcanzada' : 'Bajo meta' }}
           </span>
                       </div>
 
@@ -290,8 +290,8 @@ const hub = useHubLogic();
 
                   <template #footer>
                     <div class="compliance-footer-total">
-                      <strong :class="Number(productTotals.cumplimientoPct || 0) >= 100 ? 'text-green' : 'text-danger'">
-                        {{ hub.percent(productTotals.cumplimientoPct) }}
+                      <strong :class="Number(hub.productTotals.cumplimientoPct || 0) >= 100 ? 'text-green' : 'text-danger'">
+                        {{ hub.percent(hub.productTotals.cumplimientoPct) }}
                       </strong>
                     </div>
                   </template>

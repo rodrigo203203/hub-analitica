@@ -41,7 +41,7 @@ const hub = useHubLogic();
               <template #content>
                 <div class="projection-summary-stack">
                   <span class="projection-summary-label">Stock vigente</span>
-                  <strong class="projection-summary-value">{{ hub.moneyFull(maduracionTotals.stock) }}</strong>
+                  <strong class="projection-summary-value">{{ hub.moneyFull(hub.maduracionTotals.stock) }}</strong>
                   <small class="projection-summary-helper">Saldo actual expuesto a maduración</small>
                 </div>
               </template>
@@ -51,7 +51,7 @@ const hub = useHubLogic();
               <template #content>
                 <div class="projection-summary-stack">
                   <span class="projection-summary-label">Monto desembolsado original</span>
-                  <strong class="projection-summary-value">{{ hub.moneyFull(maduracionTotals.montoDesembolso) }}</strong>
+                  <strong class="projection-summary-value">{{ hub.moneyFull(hub.maduracionTotals.montoDesembolso) }}</strong>
                   <small class="projection-summary-helper">Monto al desembolso inicial</small>
                 </div>
               </template>
@@ -61,7 +61,7 @@ const hub = useHubLogic();
               <template #content>
                 <div class="projection-summary-stack">
                   <span class="projection-summary-label">Maduración ponderada</span>
-                  <strong class="projection-summary-value">{{ hub.percent(maduracionTotals.maduracionPonderadaPct) }}</strong>
+                  <strong class="projection-summary-value">{{ hub.percent(hub.maduracionTotals.maduracionPonderadaPct) }}</strong>
                   <small class="projection-summary-helper">Ponderada por stock vigente</small>
                 </div>
               </template>
@@ -158,7 +158,7 @@ const hub = useHubLogic();
                       </div>
                       <Tag
                           :severity="Number(row.criticoStock || 0) > 0 ? 'danger' : Number(row.alertaStock || 0) > 0 ? 'warning' : 'success'"
-                          :value="hub.Number(row.criticoStock || 0) > 0 ? 'Crítico' : Number(row.alertaStock || 0) > 0 ? 'Alerta' : 'Normal'"
+                          :value="Number(row.criticoStock || 0) > 0 ? 'Crítico' : Number(row.alertaStock || 0) > 0 ? 'Alerta' : 'Normal'"
                       />
                     </div>
                     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:11px;">

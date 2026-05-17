@@ -19,7 +19,15 @@ import fraijaImg from '../img/fraija.jpg';
 import luciaImg from '../img/lucia.jpg';
 import rodrigoImg from '../img/rodrigo.jpg';
 
+let hubSingleton = null;
+
 export function useHubLogic() {
+  if (hubSingleton) return hubSingleton;
+  hubSingleton = createHubLogic();
+  return hubSingleton;
+}
+
+function createHubLogic() {
   const dataStore = useDataStore();
   const filtersStore = useFiltersStore();
 

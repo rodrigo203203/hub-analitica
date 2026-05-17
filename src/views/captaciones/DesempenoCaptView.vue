@@ -30,7 +30,7 @@ const hub = useHubLogic();
                 <div class="projection-summary-stack">
                   <span class="projection-summary-label">Captación ejecutada</span>
                   <strong class="projection-summary-value">
-                    {{ hub.moneyFull(captacionesTotals.ejecutadaCaptaciones) }}
+                    {{ hub.moneyFull(hub.captacionesTotals.ejecutadaCaptaciones) }}
                   </strong>
                   <small class="projection-summary-helper">Total ejecutado al corte</small>
                 </div>
@@ -42,7 +42,7 @@ const hub = useHubLogic();
                 <div class="projection-summary-stack">
                   <span class="projection-summary-label">Presupuesto captaciones</span>
                   <strong class="projection-summary-value">
-                    {{ hub.moneyFull(captacionesTotals.presupuestadaCaptaciones) }}
+                    {{ hub.moneyFull(hub.captacionesTotals.presupuestadaCaptaciones) }}
                   </strong>
                   <small class="projection-summary-helper">Meta vigente al corte</small>
                 </div>
@@ -51,19 +51,19 @@ const hub = useHubLogic();
 
             <Card
                 class="projection-summary-card"
-                :class="Number(captacionesTotals.brechaCaptaciones || 0) >= 0 ? 'is-good' : 'is-risk'"
+                :class="Number(hub.captacionesTotals.brechaCaptaciones || 0) >= 0 ? 'is-good' : 'is-risk'"
             >
               <template #content>
                 <div class="projection-summary-stack">
                   <span class="projection-summary-label">Brecha vs presupuesto</span>
                   <strong
                       class="projection-summary-value"
-                      :class="Number(captacionesTotals.brechaCaptaciones || 0) >= 0 ? 'text-green' : 'text-danger'"
+                      :class="Number(hub.captacionesTotals.brechaCaptaciones || 0) >= 0 ? 'text-green' : 'text-danger'"
                   >
-                    {{ hub.signedMoneyFull(captacionesTotals.brechaCaptaciones) }}
+                    {{ hub.signedMoneyFull(hub.captacionesTotals.brechaCaptaciones) }}
                   </strong>
                   <small class="projection-summary-helper">
-                    Cumplimiento {{ hub.percent(captacionesTotals.cumplimientoCaptacionesPct) }}
+                    Cumplimiento {{ hub.percent(hub.captacionesTotals.cumplimientoCaptacionesPct) }}
                   </small>
                 </div>
               </template>

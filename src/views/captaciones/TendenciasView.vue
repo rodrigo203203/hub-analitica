@@ -23,7 +23,7 @@ const hub = useHubLogic();
             </div>
             <Tag severity="info" value="Tendencias"/>
           </div>
-          <div class="">
+          <div class="page-grid">
             <Card class="elevated-card">
               <template #title>
                 <div class="card-title-rich">

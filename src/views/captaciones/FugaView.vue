@@ -30,7 +30,7 @@ const hub = useHubLogic();
                 <div class="projection-summary-stack">
                   <span class="projection-summary-label">Saldo en alerta</span>
                   <strong class="projection-summary-value text-danger">
-                    {{ hub.moneyFull(captacionesFugaTotals.montoRiesgo) }}
+                    {{ hub.moneyFull(hub.captacionesFugaTotals.montoRiesgo) }}
                   </strong>
                   <small class="projection-summary-helper">Agencias clasificadas con categoría de alerta</small>
                 </div>
@@ -42,7 +42,7 @@ const hub = useHubLogic();
                 <div class="projection-summary-stack">
                   <span class="projection-summary-label">Agencias con alerta</span>
                   <strong class="projection-summary-value">
-                    {{ hub.Number(captacionesFugaTotals.totalAgencias || 0).toLocaleString('en-US') }}
+                    {{ Number(hub.captacionesFugaTotals.totalAgencias || 0).toLocaleString('en-US') }}
                   </strong>
                   <small class="projection-summary-helper">Agencias con categoría de alerta</small>
                 </div>
@@ -54,7 +54,7 @@ const hub = useHubLogic();
                 <div class="projection-summary-stack">
                   <span class="projection-summary-label">Alertas altas</span>
                   <strong class="projection-summary-value text-danger">
-                    {{ hub.Number(captacionesFugaTotals.alta || 0).toLocaleString('en-US') }}
+                    {{ Number(hub.captacionesFugaTotals.alta || 0).toLocaleString('en-US') }}
                   </strong>
                   <small class="projection-summary-helper">Agencias con mayor presión</small>
                 </div>

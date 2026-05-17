@@ -33,7 +33,7 @@ const hub = useHubLogic();
                   <tr>
                     <th>Banco</th>
                     <th v-for="prod in hub.benchmarkMatrix.productos" :key="prod" style="text-align: center;">
-                      {{ hub.prod }}
+                      {{ prod }}
                     </th>
                     <th style="text-align: center; width: 140px;">Participación</th>
                     <th style="text-align: center;">Crecimiento / Stock</th>
@@ -111,7 +111,7 @@ const hub = useHubLogic();
               <template #content>
                 <div class="projection-summary-stack">
                   <span class="projection-summary-label">Clientes compartidos</span>
-                  <strong class="projection-summary-value">{{ hub.Number(sharedPortfolioTotals.clientesCompartidos || 0).toLocaleString('en-US')
+                  <strong class="projection-summary-value">{{ Number(hub.sharedPortfolioTotals.clientesCompartidos || 0).toLocaleString('en-US')
                     }}</strong>
                   <small class="projection-summary-helper">Cantidad de clientes con cartera compartida</small>
                 </div>
@@ -122,8 +122,8 @@ const hub = useHubLogic();
               <template #content>
                 <div class="projection-summary-stack">
                   <span class="projection-summary-label">Cartera BNB</span>
-                  <strong class="projection-summary-value">{{ hub.moneyFull(sharedPortfolioTotals.bnb) }}</strong>
-                  <small class="projection-summary-helper">{{ hub.percent(sharedPortfolioTotals.participacionBNBPct) }} del
+                  <strong class="projection-summary-value">{{ hub.moneyFull(hub.sharedPortfolioTotals.bnb) }}</strong>
+                  <small class="projection-summary-helper">{{ hub.percent(hub.sharedPortfolioTotals.participacionBNBPct) }} del
                     total compartido</small>
                 </div>
               </template>
@@ -133,8 +133,8 @@ const hub = useHubLogic();
               <template #content>
                 <div class="projection-summary-stack">
                   <span class="projection-summary-label">Cartera otros bancos</span>
-                  <strong class="projection-summary-value">{{ hub.moneyFull(sharedPortfolioTotals.otrosBancos) }}</strong>
-                  <small class="projection-summary-helper">{{ hub.percent(sharedPortfolioTotals.participacionOtrosPct) }}
+                  <strong class="projection-summary-value">{{ hub.moneyFull(hub.sharedPortfolioTotals.otrosBancos) }}</strong>
+                  <small class="projection-summary-helper">{{ hub.percent(hub.sharedPortfolioTotals.participacionOtrosPct) }}
                     del total compartido</small>
                 </div>
               </template>
@@ -165,7 +165,7 @@ const hub = useHubLogic();
                         :key="segment"
                         class="segment-col"
                     >
-                      {{ hub.segment }}
+                      {{ segment }}
                     </th>
 
                     <th class="total-col">Total banco</th>
@@ -231,12 +231,12 @@ const hub = useHubLogic();
                         :key="`total-${segment}`"
                     >
                       <strong>
-                        {{ hub.moneyFullNoDecimals(sharedPortfolioMatrix.segmentTotals[segment] || 0) }}
+                        {{ hub.moneyFullNoDecimals(hub.sharedPortfolioMatrix.segmentTotals[segment] || 0) }}
                       </strong>
                     </td>
 
                     <td class="total-col">
-                      <strong>{{ hub.moneyFullNoDecimals(sharedPortfolioMatrix.totalGeneral) }}</strong>
+                      <strong>{{ hub.moneyFullNoDecimals(hub.sharedPortfolioMatrix.totalGeneral) }}</strong>
                     </td>
 
                     <td class="total-col">
@@ -276,7 +276,7 @@ const hub = useHubLogic();
                 <Column field="nombreAgencia" header="Agencia"/>
                 <Column field="clientesCompartidos" header="Clientes compartidos">
                   <template #body="{ data }">
-                    <strong>{{ hub.Number(data.clientesCompartidos || 0).toLocaleString('en-US') }}</strong>
+                    <strong>{{ Number(data.clientesCompartidos || 0).toLocaleString('en-US') }}</strong>
                   </template>
                 </Column>
 
