@@ -214,7 +214,4 @@ const hub = useHubLogic();
             </template>
           </Card>
         </section>
-        <!-- ═══ KPIs ══════════════════════════════════════════════════════════ -->
-        <section
-  </section>
 </template>

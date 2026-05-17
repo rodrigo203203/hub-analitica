@@ -148,7 +148,4 @@ const hub = useHubLogic();
             </Card>
           </div>
         </section>
-        <!-- ═══ ACTUALIZACIONES ════════════════════════════════════════════════ -->
-        <section
-  </section>
 </template>

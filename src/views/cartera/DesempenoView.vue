@@ -1,5 +1,8 @@
 <script setup>
+import { ref } from 'vue';
 import { useHubLogic } from '../../composables/useHubLogic.js';
+
+const oficialesFirst = ref(0);
 import Card from 'primevue/card';
 import Chart from 'primevue/chart';
 import Column from 'primevue/column';
@@ -197,8 +200,8 @@ const hub = useHubLogic();
 
                 <Column field="crecimientoMonto" header="Crec. vs Dic">
                   <template #body="{ data }">
-    <span :class="hub.trendClass(productGrowthAmount(data))">
-      {{ hub.signedMoneyFull(productGrowthAmount(data)) }}
+    <span :class="hub.trendClass(hub.productGrowthAmount(data))">
+      {{ hub.signedMoneyFull(hub.productGrowthAmount(data)) }}
     </span>
                   </template>
 
@@ -314,7 +317,7 @@ const hub = useHubLogic();
                   :sortOrder="-1"
               >
                 <Column header="#" style="width:42px;text-align:center">
-                  <template #body="{ index }"><span class="rank-badge">{{ hub.oficialesFirst + index + 1 }}</span>
+                  <template #body="{ index }"><span class="rank-badge">{{ oficialesFirst + index + 1 }}</span>
                   </template>
                 </Column>
                 <Column field="oficial" header="Oficial"/>
@@ -342,8 +345,4 @@ const hub = useHubLogic();
             </template>
           </Card>
         </section>
-
-        <!-- ═══ RIESGO PREDICTIVO ═══════════════════════════════════════════════ -->
-        <section
-  </section>
 </template>

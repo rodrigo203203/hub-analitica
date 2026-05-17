@@ -208,8 +208,4 @@ const hub = useHubLogic();
             </Card>
           </div>
         </section>
-
-        <!-- ═══ SISTEMA FINANCIERO ════════════════════════════════════════════ -->
-        <section
-  </section>
 </template>

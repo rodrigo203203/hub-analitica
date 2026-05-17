@@ -242,6 +242,4 @@ const hub = useHubLogic();
             </template>
           </Card>
         </section>
-        <section
-  </section>
 </template>

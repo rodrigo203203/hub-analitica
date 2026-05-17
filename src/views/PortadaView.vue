@@ -307,8 +307,4 @@ const hub = useHubLogic();
             </Card>
           </div>
         </section>
-
-        <!-- ═══ GOBERNANZA ════════════════════════════════════════════════════ -->
-        <section
-  </section>
 </template>

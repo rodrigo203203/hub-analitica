@@ -87,6 +87,4 @@ const hub = useHubLogic();
           </div>
 
         </section>
-        <section
-  </section>
 </template>

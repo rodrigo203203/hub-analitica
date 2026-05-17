@@ -177,8 +177,4 @@ const hub = useHubLogic();
             </template>
           </Card>
         </section>
-
-        <!-- ═══ PROYECCIÓN ════════════════════════════════════════════════════ -->
-        <section
-  </section>
 </template>

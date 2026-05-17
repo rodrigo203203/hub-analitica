@@ -310,8 +310,4 @@ const hub = useHubLogic();
             </template>
           </Card>
         </section>
-
-        <!-- ═══ AGENTE IA ══════════════════════════════════════════════════════ -->
-        <section
-  </section>
 </template>
